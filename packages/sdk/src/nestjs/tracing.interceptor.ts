@@ -1,0 +1,55 @@
+import {
+  Injectable,
+  NestInterceptor,
+  ExecutionContext,
+  CallHandler,
+  Inject,
+} from '@nestjs/common';
+import { Observable } from 'rxjs';
+import { tap } from 'rxjs/operators';
+import { SpanStatusCode } from '@opentelemetry/api';
+import { OBSERVABILITY_TRACER } from '../core/constants';
+import type { ObservabilityTracer } from '../tracing/tracer.service';
+
+@Injectable()
+export class TracingInterceptor implements NestInterceptor {
+  constructor(@Inject(OBSERVABILITY_TRACER) private tracer: ObservabilityTracer) {}
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const handler = context.getHandler();
+    const controller = context.getClass();
+    const spanName = `${controller.name}.${handler.name}`;
+
+    const span = this.tracer.getTracer().startSpan(spanName, {
+      attributes: {
+        'nestjs.controller': controller.name,
+        'nestjs.handler': handler.name,
+        'nestjs.type': context.getType(),
+      },
+    });
+
+    const req = context.switchToHttp().getRequest?.();
+    if (req?.method) {
+      span.setAttribute('http.method', req.method);
+      span.setAttribute('http.url', req.url);
+    }
+
+    return next.handle().pipe(
+      tap({
+        next: () => {
+          const res = context.switchToHttp().getResponse?.();
+          if (res?.statusCode) {
+            span.setAttribute('http.status_code', res.statusCode);
+          }
+          span.setStatus({ code: SpanStatusCode.OK });
+          span.end();
+        },
+        error: (err: Error) => {
+          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+          span.recordException(err);
+          span.end();
+        },
+      }),
+    );
+  }
+}

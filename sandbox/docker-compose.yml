@@ -1,0 +1,50 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    command: ["--config", "/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics
+    depends_on:
+      - tempo
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"
+
+  loki:
+    image: grafana/loki:2.9.6
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "9095:9095"   # Tempo gRPC
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
