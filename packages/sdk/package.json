@@ -1,6 +1,6 @@
 {
   "name": "@ivymurage-rw/observability",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Internal observability platform SDK for NestJS distributed services",
   "repository": {
     "type": "git",
@@ -21,7 +21,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "sideEffects": false,
   "scripts": {
