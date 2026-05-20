@@ -1,58 +1,59 @@
 # Getting Started
 
-## Installation
+Add structured logging, distributed tracing, and Prometheus metrics to any NestJS service in 3 steps. Takes about 10 minutes.
+
+---
+
+## Step 1: Install
 
 ```bash
-# Install the SDK
 npm install @company/observability
 
-# Required peer dependencies (you likely already have these)
-npm install @nestjs/common @nestjs/core rxjs reflect-metadata
-
-# Optional: install instrumentations for your stack
-npm install @opentelemetry/instrumentation-mysql2    # MySQL
-npm install @opentelemetry/instrumentation-ioredis   # Redis
-npm install @opentelemetry/instrumentation-kafkajs   # Kafka
-npm install @opentelemetry/instrumentation-pg        # PostgreSQL
-
-# Development: pretty logs
+# Pretty logs for development (recommended)
 npm install -D pino-pretty
 ```
 
-## Quick Start
+Your NestJS peer dependencies (`@nestjs/common`, `@nestjs/core`, `rxjs`, `reflect-metadata`) are already in your project. No extra setup needed.
 
-### 1. Import the module
+---
+
+## Step 2: Wire the module
+
+### app.module.ts
+
+Import `ObservabilityModule` and add it to your imports. Pick only the instrumentations your service uses.
 
 ```typescript
-// app.module.ts
 import {
   ObservabilityModule,
   ObservabilityHealthModule,
   httpInstrumentation,
-  mysqlInstrumentation,
   kafkaInstrumentation,
+  redisInstrumentation,
 } from '@company/observability';
 
 @Module({
   imports: [
     ObservabilityModule.forRoot({
-      serviceName: 'my-service',
+      serviceName: 'your-service-name',
       instrumentations: [
-        httpInstrumentation(),
-        mysqlInstrumentation(),
+        httpInstrumentation({ ignoreIncomingPaths: ['/health', '/metrics'] }),
         kafkaInstrumentation(),
+        redisInstrumentation(),
       ],
     }),
-    ObservabilityHealthModule, // optional: /health, /health/ready, /health/live
+    ObservabilityHealthModule,
+    // ... your other modules
   ],
 })
 export class AppModule {}
 ```
 
-### 2. Replace the NestJS logger
+### main.ts
+
+Add `bufferLogs: true` and set the SDK logger as the NestJS logger. This replaces the default NestJS console logger with structured pino output.
 
 ```typescript
-// main.ts
 import { NestFactory } from '@nestjs/core';
 import { NestPinoLogger } from '@company/observability';
 import { AppModule } from './app.module';
@@ -65,73 +66,80 @@ async function bootstrap() {
 bootstrap();
 ```
 
-### 3. Use in services
+That's it. Start your service and you'll see structured logs with `service_name`, `environment`, and `version` on every line.
+
+---
+
+## Step 3: Use in your services
+
+Inject `ObservabilityLogger` anywhere you need logging. It's globally available from the module — no extra providers needed.
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { ObservabilityLogger, ObservabilityTracer, Span } from '@company/observability';
+import { ObservabilityLogger, Span } from '@company/observability';
 
 @Injectable()
-export class OrderService {
-  constructor(
-    private logger: ObservabilityLogger,
-    private tracer: ObservabilityTracer,
-  ) {}
+export class PaymentService {
+  constructor(private logger: ObservabilityLogger) {}
 
-  @Span('create-order')
-  async createOrder(data: CreateOrderDto) {
-    this.logger.info('creating order', { customerId: data.customerId });
-
-    // Logs automatically include trace_id, request_id, correlation_id
-    // Span automatically created and closed
-
-    return this.orderRepo.save(data);
-  }
-
+  @Span('process-payment')
   async processPayment(orderId: string) {
-    // Manual span for fine-grained control
-    return this.tracer.startActiveSpan('process-payment', async (span) => {
-      span.setAttribute('order.id', orderId);
-      const result = await this.paymentGateway.charge(orderId);
-      this.logger.info('payment processed', { orderId, status: result.status });
-      return result;
-    });
+    this.logger.info('processing payment', { orderId });
+    const result = await this.gateway.charge(orderId);
+    this.logger.info('payment completed', { orderId, status: result.status });
+    return result;
   }
 }
 ```
 
-## What you get automatically
+Every log line automatically includes `trace_id`, `request_id`, `correlation_id`, and `span_id`. No manual wiring.
 
-- Structured JSON logs with trace correlation (stdout)
-- Distributed tracing with W3C context propagation
-- Prometheus metrics at `/metrics`
-- Request context propagation via AsyncLocalStorage
-- Sensitive data redaction (passwords, tokens, keys)
-- Request/response logging
-- Error logging with stack traces on spans
-- Health endpoints (with ObservabilityHealthModule)
+---
 
-## What you DON'T need to do
+## What you get
 
-- Manually pass trace IDs between services
-- Manually structure log output
-- Manually create request context
-- Manually redact sensitive fields
-- Manually set up Prometheus metrics boilerplate
+| Feature | How | Endpoint |
+|---------|-----|----------|
+| Structured JSON logs | Pino with trace correlation | stdout |
+| Distributed tracing | OpenTelemetry with W3C propagation | configurable exporter |
+| Prometheus metrics | Auto-registered process + HTTP metrics | `GET /metrics` |
+| Health checks | Liveness, readiness, and startup probes | `GET /health` |
+| Sensitive data redaction | Passwords, tokens, keys auto-censored | automatic |
+| Request context | Request ID, correlation ID via AsyncLocalStorage | automatic |
 
-## Configuration
+---
+
+## Available instrumentations
+
+Install only what your service uses:
+
+| Instrumentation | When to use | Optional dependency |
+|----------------|-------------|-------------------|
+| `httpInstrumentation()` | Always (traces HTTP requests) | built-in |
+| `kafkaInstrumentation()` | Service uses KafkaJS | `@opentelemetry/instrumentation-kafkajs` |
+| `redisInstrumentation()` | Service uses Redis/ioredis | `@opentelemetry/instrumentation-ioredis` |
+| `mysqlInstrumentation()` | Service uses MySQL | `@opentelemetry/instrumentation-mysql2` |
+| `pgInstrumentation()` | Service uses PostgreSQL | `@opentelemetry/instrumentation-pg` |
+
+The SDK logs a helpful message if an optional dependency is missing — it won't crash.
+
+---
+
+## Configuration reference
+
+All fields except `serviceName` are optional with sensible defaults.
 
 ```typescript
 ObservabilityModule.forRoot({
-  serviceName: 'my-service',          // required
-  environment: 'production',          // defaults to NODE_ENV
-  version: '1.2.3',                   // defaults to npm_package_version
+  serviceName: 'my-service',        // required — identifies your service
+  environment: 'production',        // defaults to NODE_ENV
+  version: '1.2.3',                 // defaults to npm_package_version
 
   logger: {
-    level: 'info',                    // debug | info | warn | error | fatal
-    prettyPrint: false,               // true in dev, false in prod (auto)
+    level: 'info',                  // debug | info | warn | error | fatal
+    prettyPrint: false,             // auto: true in dev, false in prod
     redaction: {
-      paths: ['*.password', '*.ssn'], // extends defaults, doesn't replace
+      paths: ['*.password', '*.ssn'],
       censor: '[REDACTED]',
     },
   },
@@ -139,42 +147,153 @@ ObservabilityModule.forRoot({
   tracing: {
     enabled: true,
     exporter: {
-      type: 'otlp-http',             // otlp-http | otlp-grpc | console | none
+      type: 'otlp-http',           // otlp-http | otlp-grpc | console | none
       endpoint: 'http://otel-collector:4318',
-      headers: { 'x-api-key': '...' },
     },
     sampling: {
-      type: 'parent-based',          // always | never | probabilistic | parent-based
-      ratio: 0.1,                    // 10% in prod, 100% in dev (auto)
+      ratio: 0.1,                  // 10% in prod (auto: 100% in dev)
     },
   },
 
   metrics: {
     enabled: true,
-    prefix: 'myservice',             // metric name prefix
-    defaultMetrics: true,             // Node.js process metrics
-    labels: { team: 'platform' },     // extra default labels
+    prefix: 'myservice',           // metric name prefix
+    defaultMetrics: true,           // Node.js process metrics
+    labels: { team: 'platform' },
   },
 
-  instrumentations: [
-    httpInstrumentation({ ignoreIncomingPaths: ['/health', '/metrics'] }),
-    mysqlInstrumentation(),
-    redisInstrumentation(),
-    kafkaInstrumentation(),
-  ],
+  instrumentations: [ /* ... */ ],
 })
 ```
 
-## Kafka Context Propagation
+### Local development tip
 
-For automatic propagation, install `@opentelemetry/instrumentation-kafkajs` and add `kafkaInstrumentation()`.
+Use `console` exporter to see traces in your terminal without running an OTel collector:
 
-For manual control:
+```typescript
+tracing: {
+  exporter: { type: 'console' },
+}
+```
+
+---
+
+## Migrating from Winston / Morgan / custom loggers
+
+### What to change
+
+Migration touches 3 files: `app.module.ts`, `main.ts`, and any service that injects your old logger.
+
+#### 1. app.module.ts — comment out old logging
+
+```typescript
+// Before
+import LoggerModule from './logger/logger.module';
+import MorganMiddleware from './middlewares/morgan.middleware';
+
+@Module({
+  imports: [LoggerModule.register('App'), ...],
+})
+class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(MorganMiddleware).forRoutes('*');
+  }
+}
+
+// After
+// import LoggerModule from './logger/logger.module';
+// import MorganMiddleware from './middlewares/morgan.middleware';
+import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@company/observability';
+
+@Module({
+  imports: [
+    ObservabilityModule.forRoot({ serviceName: 'my-service', instrumentations: [httpInstrumentation()] }),
+    ObservabilityHealthModule,
+    // LoggerModule.register('App'),   <-- commented out
+    ...
+  ],
+})
+class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // consumer.apply(MorganMiddleware).forRoutes('*');   <-- commented out
+  }
+}
+```
+
+#### 2. main.ts — swap the logger
+
+```typescript
+// Before
+const app = await NestFactory.create(AppModule);
+
+// After
+import { NestPinoLogger } from '@company/observability';
+
+const app = await NestFactory.create(AppModule, { bufferLogs: true });
+app.useLogger(app.get(NestPinoLogger));
+```
+
+#### 3. Services — replace logger injection
+
+```typescript
+// Before
+import LoggerService from './logger/logger.service';
+
+@Injectable()
+export class MyService {
+  constructor(private loggerService: LoggerService) {}
+
+  doWork() {
+    this.loggerService.handleInfoLog('doing work');
+  }
+}
+
+// After
+import { ObservabilityLogger } from '@company/observability';
+
+@Injectable()
+export class MyService {
+  constructor(private logger: ObservabilityLogger) {}
+
+  doWork() {
+    this.logger.info('doing work');
+  }
+}
+```
+
+### Logger method mapping
+
+| Winston / custom | SDK equivalent |
+|-----------------|----------------|
+| `logger.log(msg)` | `logger.info(msg)` |
+| `logger.handleInfoLog(msg)` | `logger.info(msg)` |
+| `logger.handleErrorLog(msg)` | `logger.error(msg)` |
+| `logger.warn(msg)` | `logger.warn(msg)` |
+| `logger.debug(msg)` | `logger.debug(msg)` |
+| `console.log(msg)` | `logger.info(msg)` |
+
+### Adding context to logs
+
+```typescript
+// Before — manual string concatenation
+console.log(`Order ${orderId} created by user ${userId}`);
+
+// After — structured context (searchable, filterable)
+this.logger.info('order created', { orderId, userId });
+```
+
+---
+
+## Kafka context propagation
+
+Trace context flows automatically across Kafka when you add `kafkaInstrumentation()`.
+
+For manual control over headers:
 
 ```typescript
 import { injectKafkaHeaders, withKafkaContext } from '@company/observability';
 
-// Producer: inject trace context into message headers
+// Producer: inject trace context into headers
 await producer.send({
   topic: 'events',
   messages: [{
@@ -183,52 +302,90 @@ await producer.send({
   }],
 });
 
-// Consumer: extract trace context from message headers
+// Consumer: extract trace context from headers
 await consumer.run({
   eachMessage: async ({ message }) => {
     await withKafkaContext(message.headers, 'process-event', async () => {
-      // trace context active here, logs include trace_id
       await processEvent(message);
     });
   },
 });
 ```
 
-## Migration from console.log / Winston
+---
 
-Replace:
+## Custom spans
 
-```typescript
-// Before
-console.log('order created', orderId);
-this.logger.log('Processing payment');
-```
-
-With:
+Use the `@Span` decorator for automatic span management, or `ObservabilityTracer` for manual control.
 
 ```typescript
-// After
-this.logger.info('order created', { orderId });
-this.logger.info('processing payment');
+import { ObservabilityTracer, Span } from '@company/observability';
+
+@Injectable()
+export class OrderService {
+  constructor(private tracer: ObservabilityTracer) {}
+
+  // Automatic: decorator creates and closes span
+  @Span('validate-order')
+  async validateOrder(data: CreateOrderDto) {
+    return this.validator.check(data);
+  }
+
+  // Manual: full control over span attributes and lifecycle
+  async processOrder(orderId: string) {
+    return this.tracer.startActiveSpan('process-order', async (span) => {
+      span.setAttribute('order.id', orderId);
+      const result = await this.process(orderId);
+      span.setAttribute('order.status', result.status);
+      return result;
+    });
+  }
+}
 ```
 
-The SDK logger automatically adds all context fields. No manual structuring needed.
+---
 
-## Local Development
+## Verify it works
 
-Start the observability sandbox:
+Start your service and hit any endpoint:
 
 ```bash
-pnpm sandbox:up    # Starts Grafana, Prometheus, Loki, Tempo, OTel Collector
+# Health check
+curl http://localhost:3000/health
+
+# Prometheus metrics
+curl http://localhost:3000/metrics
+
+# Your own endpoints — check terminal for structured logs and trace spans
+curl http://localhost:3000/api/your-endpoint
 ```
 
-- Grafana: http://localhost:3000 (admin/admin)
-- Prometheus: http://localhost:9090
-- Traces: Grafana → Explore → Tempo
-- Logs: Grafana → Explore → Loki
+You should see in your terminal:
 
-Stop:
+```
+[15:58:07.768] INFO (your-service/12345): request completed
+    service_name: "your-service"
+    environment: "development"
+    version: "0.0.1"
+    trace_id: "abc123..."
+    request_id: "req-456..."
+    duration: 12
+```
+
+---
+
+## Local development sandbox
+
+For a full observability stack (Grafana, Prometheus, Loki, Tempo):
 
 ```bash
-pnpm sandbox:down
+pnpm sandbox:up    # start
+pnpm sandbox:down  # stop
 ```
+
+| Tool | URL | Credentials |
+|------|-----|-------------|
+| Grafana | http://localhost:3000 | admin / admin |
+| Prometheus | http://localhost:9090 | - |
+| Traces | Grafana > Explore > Tempo | - |
+| Logs | Grafana > Explore > Loki | - |
