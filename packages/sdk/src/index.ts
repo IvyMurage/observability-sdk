@@ -53,3 +53,7 @@ export { sanitizeHeaders, DEFAULT_REDACTION_PATHS } from './security/redaction';
 // Health & Diagnostics
 export { DiagnosticsService } from './diagnostics/diagnostics.service';
 export type { DiagnosticsReport } from './diagnostics/diagnostics.service';
+
+// Bootstrap
+export { setupProcessErrorHandlers } from './bootstrap/process-error-handler';
+export type { ProcessErrorHandlerOptions } from './bootstrap/process-error-handler';

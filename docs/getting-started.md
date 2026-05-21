@@ -51,12 +51,14 @@ export class AppModule {}
 
 ### main.ts
 
-Add `bufferLogs: true` and set the SDK logger as the NestJS logger. This replaces the default NestJS console logger with structured pino output.
+Add `setupProcessErrorHandlers` at the top to catch bootstrap crashes (missing modules, connection failures, bad config) as structured JSON. Then add `bufferLogs: true` and set the SDK logger.
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
-import { NestPinoLogger } from '@company/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@company/observability';
 import { AppModule } from './app.module';
+
+setupProcessErrorHandlers({ serviceName: 'your-service-name' });
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -65,6 +67,8 @@ async function bootstrap() {
 }
 bootstrap();
 ```
+
+`setupProcessErrorHandlers` catches `uncaughtException` and `unhandledRejection` events that happen before or outside NestJS — like missing modules, database connection failures during import, or Kafka broker unreachable errors. These are output as structured JSON to stderr so your log aggregator can parse them.
 
 That's it. Start your service and you'll see structured logs with `service_name`, `environment`, and `version` on every line.
 
@@ -220,14 +224,16 @@ class AppModule implements NestModule {
 }
 ```
 
-#### 2. main.ts — swap the logger
+#### 2. main.ts — swap the logger and add process error handling
 
 ```typescript
 // Before
 const app = await NestFactory.create(AppModule);
 
 // After
-import { NestPinoLogger } from '@company/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@company/observability';
+
+setupProcessErrorHandlers({ serviceName: 'my-service' });
 
 const app = await NestFactory.create(AppModule, { bufferLogs: true });
 app.useLogger(app.get(NestPinoLogger));
