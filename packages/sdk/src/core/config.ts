@@ -50,6 +50,7 @@ export function resolveConfig(config: ObservabilityConfig): ResolvedConfig {
     },
 
     instrumentations: config.instrumentations || [],
+    clientOrigins: config.clientOrigins,
 
     redaction: {
       paths: config.redaction?.paths || DEFAULT_REDACTION_PATHS,

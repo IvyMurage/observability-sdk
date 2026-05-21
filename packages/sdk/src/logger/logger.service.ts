@@ -74,6 +74,7 @@ export class ObservabilityLogger {
       ...(ctx && {
         request_id: ctx.requestId,
         correlation_id: ctx.correlationId,
+        ...(ctx.clientApp && { client_app: ctx.clientApp }),
       }),
       ...(spanCtx && {
         trace_id: spanCtx.traceId,

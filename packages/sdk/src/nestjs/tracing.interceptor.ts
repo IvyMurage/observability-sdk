@@ -9,6 +9,7 @@ import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { OBSERVABILITY_TRACER } from '../core/constants';
+import { getContext } from '../core/context';
 import type { ObservabilityTracer } from '../tracing/tracer.service';
 
 @Injectable()
@@ -32,6 +33,11 @@ export class TracingInterceptor implements NestInterceptor {
     if (req?.method) {
       span.setAttribute('http.method', req.method);
       span.setAttribute('http.url', req.url);
+    }
+
+    const ctx = getContext();
+    if (ctx?.clientApp) {
+      span.setAttribute('client.app', ctx.clientApp);
     }
 
     return next.handle().pipe(

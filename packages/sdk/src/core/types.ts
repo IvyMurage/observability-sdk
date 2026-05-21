@@ -12,6 +12,8 @@ export interface ObservabilityConfig {
 
   instrumentations?: InstrumentationPlugin[];
 
+  clientOrigins?: Record<string, string>;
+
   redaction?: RedactionConfig;
 }
 
@@ -63,6 +65,7 @@ export interface RequestContext {
   correlationId: string;
   traceId?: string;
   spanId?: string;
+  clientApp?: string;
   serviceName: string;
   environment: string;
   version: string;
@@ -90,5 +93,6 @@ export interface ResolvedConfig {
   health: Required<HealthConfig>;
 
   instrumentations: InstrumentationPlugin[];
+  clientOrigins?: Record<string, string>;
   redaction: Required<RedactionConfig>;
 }
