@@ -60,12 +60,14 @@ import {
 export class AppModule {}
 ```
 
-**main.ts** — add `bufferLogs: true` and set the SDK logger:
+**main.ts** — add `setupProcessErrorHandlers` at the top to catch bootstrap crashes, then add `bufferLogs: true` and set the SDK logger:
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
-import { NestPinoLogger } from '@company/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@company/observability';
 import { AppModule } from './app.module';
+
+setupProcessErrorHandlers({ serviceName: 'your-service-name' });
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -74,6 +76,8 @@ async function bootstrap() {
 }
 bootstrap();
 ```
+
+`setupProcessErrorHandlers` catches `uncaughtException` and `unhandledRejection` events that happen before or outside NestJS — like missing modules, database connection failures during import, or Kafka broker unreachable errors. These are output as structured JSON to stderr so your log aggregator can parse them.
 
 ### 3. Use in your services
 
@@ -284,14 +288,16 @@ class AppModule implements NestModule {
 }
 ```
 
-### 2. main.ts — swap the logger
+### 2. main.ts — swap the logger and add process error handling
 
 ```typescript
 // Before
 const app = await NestFactory.create(AppModule);
 
 // After
-import { NestPinoLogger } from '@company/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@company/observability';
+
+setupProcessErrorHandlers({ serviceName: 'my-service' });
 
 const app = await NestFactory.create(AppModule, { bufferLogs: true });
 app.useLogger(app.get(NestPinoLogger));
@@ -431,6 +437,7 @@ In your CI pipeline, set `GITHUB_TOKEN` as a secret:
 | `withKafkaContext` | Function | Extract trace context from Kafka headers |
 | `getContext` | Function | Get current request context |
 | `runWithContext` | Function | Run code within a request context |
+| `setupProcessErrorHandlers` | Function | Catch bootstrap crashes as structured JSON |
 | `sanitizeHeaders` | Function | Redact sensitive header values |
 
 ---

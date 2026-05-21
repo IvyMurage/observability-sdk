@@ -7,6 +7,9 @@ coverage/
 .env.*
 !.env.example
 
+# Docs (internal)
+docs/
+
 # Claude Code
 .claude/
 
