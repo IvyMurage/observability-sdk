@@ -1,4 +1,4 @@
-# @company/observability
+# @ivymurage-rw/observability
 
 Structured logging, distributed tracing, and Prometheus metrics for NestJS services. Drop-in module — takes about 10 minutes to integrate.
 
@@ -22,7 +22,7 @@ Every log line automatically includes `trace_id`, `request_id`, `correlation_id`
 ### 1. Install
 
 ```bash
-npm install @company/observability
+npm install @ivymurage-rw/observability
 
 # Pretty logs for local development (recommended)
 npm install -D pino-pretty
@@ -41,7 +41,7 @@ import {
   httpInstrumentation,
   kafkaInstrumentation,
   redisInstrumentation,
-} from '@company/observability';
+} from '@ivymurage-rw/observability';
 
 @Module({
   imports: [
@@ -60,12 +60,14 @@ import {
 export class AppModule {}
 ```
 
-**main.ts** — add `bufferLogs: true` and set the SDK logger:
+**main.ts** — add `setupProcessErrorHandlers` at the top to catch bootstrap crashes, then add `bufferLogs: true` and set the SDK logger:
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
-import { NestPinoLogger } from '@company/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage-rw/observability';
 import { AppModule } from './app.module';
+
+setupProcessErrorHandlers({ serviceName: 'your-service-name' });
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -75,13 +77,15 @@ async function bootstrap() {
 bootstrap();
 ```
 
+`setupProcessErrorHandlers` catches `uncaughtException` and `unhandledRejection` events that happen before or outside NestJS — like missing modules, database connection failures during import, or Kafka broker unreachable errors. These are output as structured JSON to stderr so your log aggregator can parse them.
+
 ### 3. Use in your services
 
 Inject `ObservabilityLogger` anywhere — it's globally available, no extra providers needed:
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { ObservabilityLogger, Span } from '@company/observability';
+import { ObservabilityLogger, Span } from '@ivymurage-rw/observability';
 
 @Injectable()
 export class PaymentService {
@@ -188,7 +192,7 @@ The SDK logs a helpful message if an optional dependency is missing — it won't
 Use the `@Span` decorator for automatic span management, or `ObservabilityTracer` for manual control:
 
 ```typescript
-import { ObservabilityTracer, Span } from '@company/observability';
+import { ObservabilityTracer, Span } from '@ivymurage-rw/observability';
 
 @Injectable()
 export class OrderService {
@@ -221,7 +225,7 @@ Trace context flows automatically across Kafka when you add `kafkaInstrumentatio
 For manual header control:
 
 ```typescript
-import { injectKafkaHeaders, withKafkaContext } from '@company/observability';
+import { injectKafkaHeaders, withKafkaContext } from '@ivymurage-rw/observability';
 
 // Producer: inject trace context into headers
 await producer.send({
@@ -267,7 +271,7 @@ class AppModule implements NestModule {
 // After
 // import LoggerModule from './logger/logger.module';
 // import MorganMiddleware from './middlewares/morgan.middleware';
-import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@company/observability';
+import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@ivymurage-rw/observability';
 
 @Module({
   imports: [
@@ -284,14 +288,16 @@ class AppModule implements NestModule {
 }
 ```
 
-### 2. main.ts — swap the logger
+### 2. main.ts — swap the logger and add process error handling
 
 ```typescript
 // Before
 const app = await NestFactory.create(AppModule);
 
 // After
-import { NestPinoLogger } from '@company/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage-rw/observability';
+
+setupProcessErrorHandlers({ serviceName: 'my-service' });
 
 const app = await NestFactory.create(AppModule, { bufferLogs: true });
 app.useLogger(app.get(NestPinoLogger));
@@ -313,7 +319,7 @@ export class MyService {
 }
 
 // After
-import { ObservabilityLogger } from '@company/observability';
+import { ObservabilityLogger } from '@ivymurage-rw/observability';
 
 @Injectable()
 export class MyService {
@@ -365,7 +371,7 @@ You need a token with `read:packages` scope:
 Create a `.npmrc` file in your service root (next to `package.json`):
 
 ```
-@company:registry=https://npm.pkg.github.com
+@ivymurage-rw:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
 ```
 
@@ -392,7 +398,7 @@ GITHUB_TOKEN=ghp_your_token_here
 ### 4. Install
 
 ```bash
-npm install @company/observability
+npm install @ivymurage-rw/observability
 ```
 
 ### 5. CI/CD
@@ -431,6 +437,7 @@ In your CI pipeline, set `GITHUB_TOKEN` as a secret:
 | `withKafkaContext` | Function | Extract trace context from Kafka headers |
 | `getContext` | Function | Get current request context |
 | `runWithContext` | Function | Run code within a request context |
+| `setupProcessErrorHandlers` | Function | Catch bootstrap crashes as structured JSON |
 | `sanitizeHeaders` | Function | Redact sensitive header values |
 
 ---
