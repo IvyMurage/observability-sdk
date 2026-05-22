@@ -182,8 +182,119 @@ tracing: {
 | `redisInstrumentation()` | Service uses Redis/ioredis | `@opentelemetry/instrumentation-ioredis` |
 | `mysqlInstrumentation()` | Service uses MySQL | `@opentelemetry/instrumentation-mysql2` |
 | `pgInstrumentation()` | Service uses PostgreSQL | `@opentelemetry/instrumentation-pg` |
+| `sequelizeInstrumentation()` | Service uses Sequelize (any dialect) | `opentelemetry-instrumentation-sequelize` |
 
 The SDK logs a helpful message if an optional dependency is missing — it won't crash.
+
+---
+
+## Database query observability (Sequelize)
+
+Structured logging and distributed tracing for all Sequelize queries — works with MSSQL (Tedious), PostgreSQL, MySQL, and SQLite. No driver-level patching.
+
+### 1. Add the instrumentation
+
+```typescript
+import {
+  ObservabilityModule,
+  sequelizeInstrumentation,
+  httpInstrumentation,
+} from '@ivymurage-rw/observability';
+
+@Module({
+  imports: [
+    ObservabilityModule.forRoot({
+      serviceName: 'my-service',
+      instrumentations: [
+        httpInstrumentation(),
+        sequelizeInstrumentation({ slowQueryThreshold: 500 }),
+      ],
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+### 2. Wire Sequelize logging
+
+In your database module, pass `createSequelizeLogging` as Sequelize's `logging` option:
+
+```typescript
+import { ObservabilityLogger, createSequelizeLogging } from '@ivymurage-rw/observability';
+
+// In your SequelizeModule.forRootAsync config:
+useFactory: (logger: ObservabilityLogger) => ({
+  dialect: 'mssql',  // or 'postgres', 'mysql', 'sqlite'
+  // ... connection config
+  logging: createSequelizeLogging(logger, { slowQueryThreshold: 500 }),
+  benchmark: true,  // required — provides query timing
+}),
+inject: [ObservabilityLogger],
+```
+
+### What you get
+
+Every DB query is logged as structured JSON, correlated with the current request:
+
+```json
+{
+  "level": "debug",
+  "msg": "query executed",
+  "event": "db.query",
+  "db.operation": "SELECT",
+  "table": "users",
+  "duration_ms": 12,
+  "success": true,
+  "trace_id": "abc123...",
+  "request_id": "req-456...",
+  "service_name": "authentication-service"
+}
+```
+
+Slow queries are automatically logged as warnings:
+
+```json
+{
+  "level": "warn",
+  "msg": "slow query detected",
+  "event": "db.slow_query",
+  "db.operation": "SELECT",
+  "table": "bookings",
+  "duration_ms": 3200
+}
+```
+
+### Configuration options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `logging` | `true` | Enable structured query logging |
+| `tracing` | `true` | Enable OpenTelemetry span creation |
+| `sanitizeQueries` | `true` | Replace literals with `?` in captured SQL |
+| `captureSqlText` | `false` | Include sanitized SQL in logs (disabled for security) |
+| `slowQueryThreshold` | `500` | Milliseconds — queries slower than this trigger a warning |
+
+### Security
+
+SQL values are **never** logged by default. When `captureSqlText` is enabled, queries are automatically sanitized:
+
+```
+-- Raw (never logged)
+SELECT * FROM users WHERE email='ivy@test.com' AND id=123
+
+-- Sanitized (logged when captureSqlText: true)
+SELECT * FROM users WHERE email='?' AND id=?
+```
+
+### Optional dependency
+
+For OpenTelemetry span tracing, install:
+
+```bash
+npm install opentelemetry-instrumentation-sequelize
+```
+
+Without it, structured logging still works — you just won't get OTel trace spans for individual queries.
 
 ---
 
@@ -433,6 +544,11 @@ In your CI pipeline, set `GITHUB_TOKEN` as a secret:
 | `redisInstrumentation` | Factory | Redis/ioredis tracing |
 | `mysqlInstrumentation` | Factory | MySQL tracing |
 | `pgInstrumentation` | Factory | PostgreSQL tracing |
+| `sequelizeInstrumentation` | Factory | Sequelize query tracing (all dialects) |
+| `createSequelizeLogging` | Function | Structured DB query logging for Sequelize |
+| `createSequelizeErrorLogging` | Function | Structured DB error logging for Sequelize |
+| `sanitizeQuery` | Function | Remove literals from SQL strings |
+| `parseQuery` | Function | Extract operation, table, and sanitized SQL |
 | `injectKafkaHeaders` | Function | Inject trace context into Kafka headers |
 | `withKafkaContext` | Function | Extract trace context from Kafka headers |
 | `getContext` | Function | Get current request context |

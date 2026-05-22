@@ -1,6 +1,6 @@
 {
   "name": "@ivymurage-rw/observability",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Internal observability platform SDK for NestJS distributed services",
   "repository": {
     "type": "git",
@@ -55,7 +55,9 @@
     "@opentelemetry/instrumentation-ioredis": ">=0.40.0",
     "@opentelemetry/instrumentation-kafkajs": ">=0.1.0",
     "@opentelemetry/instrumentation-mysql2": ">=0.38.0",
-    "@opentelemetry/instrumentation-pg": ">=0.41.0"
+    "@opentelemetry/instrumentation-pg": ">=0.41.0",
+    "opentelemetry-instrumentation-sequelize": ">=0.41.0",
+    "sequelize": "^6.0.0 || ^7.0.0"
   },
   "peerDependenciesMeta": {
     "ioredis": {
@@ -80,6 +82,12 @@
       "optional": true
     },
     "@opentelemetry/instrumentation-pg": {
+      "optional": true
+    },
+    "opentelemetry-instrumentation-sequelize": {
+      "optional": true
+    },
+    "sequelize": {
       "optional": true
     }
   },

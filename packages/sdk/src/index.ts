@@ -46,6 +46,10 @@ export { kafkaInstrumentation, injectKafkaHeaders, withKafkaContext } from './in
 export { redisInstrumentation } from './instrumentations/redis';
 export { mysqlInstrumentation } from './instrumentations/mysql';
 export { pgInstrumentation } from './instrumentations/pg';
+export { sequelizeInstrumentation, createSequelizeLogging, createSequelizeErrorLogging } from './instrumentations/sequelize';
+export type { SequelizeInstrumentationOptions, SequelizeLoggingFn } from './instrumentations/sequelize';
+export { sanitizeQuery, extractOperation, extractTable, parseQuery } from './instrumentations/query-sanitizer';
+export type { ParsedQuery } from './instrumentations/query-sanitizer';
 
 // Security
 export { sanitizeHeaders, DEFAULT_REDACTION_PATHS } from './security/redaction';

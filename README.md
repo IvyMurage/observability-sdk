@@ -182,8 +182,57 @@ tracing: {
 | `redisInstrumentation()` | Service uses Redis/ioredis | `@opentelemetry/instrumentation-ioredis` |
 | `mysqlInstrumentation()` | Service uses MySQL | `@opentelemetry/instrumentation-mysql2` |
 | `pgInstrumentation()` | Service uses PostgreSQL | `@opentelemetry/instrumentation-pg` |
+| `sequelizeInstrumentation()` | Service uses Sequelize (any dialect) | `opentelemetry-instrumentation-sequelize` |
 
 The SDK logs a helpful message if an optional dependency is missing — it won't crash.
+
+---
+
+## Database query observability (Sequelize)
+
+Structured logging and distributed tracing for all Sequelize queries — works with MSSQL (Tedious), PostgreSQL, MySQL, and SQLite.
+
+### 1. Add the instrumentation
+
+```typescript
+import { sequelizeInstrumentation, httpInstrumentation } from '@ivymurage-rw/observability';
+
+ObservabilityModule.forRoot({
+  serviceName: 'my-service',
+  instrumentations: [
+    httpInstrumentation(),
+    sequelizeInstrumentation({ slowQueryThreshold: 500 }),
+  ],
+})
+```
+
+### 2. Wire Sequelize logging
+
+```typescript
+import { ObservabilityLogger, createSequelizeLogging } from '@ivymurage-rw/observability';
+
+// In your Sequelize config:
+logging: createSequelizeLogging(logger, { slowQueryThreshold: 500 }),
+benchmark: true,  // required — provides query timing
+```
+
+### What you get
+
+```json
+{
+  "event": "db.query",
+  "db.operation": "SELECT",
+  "table": "users",
+  "duration_ms": 12,
+  "success": true,
+  "trace_id": "abc123...",
+  "request_id": "req-456..."
+}
+```
+
+Slow queries (> threshold) automatically logged as warnings. SQL values never logged by default — sanitized to `?` when `captureSqlText` is enabled.
+
+See [SDK README](packages/sdk/README.md) for full configuration options.
 
 ---
 
@@ -433,6 +482,9 @@ In your CI pipeline, set `GITHUB_TOKEN` as a secret:
 | `redisInstrumentation` | Factory | Redis/ioredis tracing |
 | `mysqlInstrumentation` | Factory | MySQL tracing |
 | `pgInstrumentation` | Factory | PostgreSQL tracing |
+| `sequelizeInstrumentation` | Factory | Sequelize query tracing (all dialects) |
+| `createSequelizeLogging` | Function | Structured DB query logging for Sequelize |
+| `createSequelizeErrorLogging` | Function | Structured DB error logging for Sequelize |
 | `injectKafkaHeaders` | Function | Inject trace context into Kafka headers |
 | `withKafkaContext` | Function | Extract trace context from Kafka headers |
 | `getContext` | Function | Get current request context |
