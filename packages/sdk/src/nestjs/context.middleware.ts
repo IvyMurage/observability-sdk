@@ -20,10 +20,12 @@ export class ContextMiddleware implements NestMiddleware {
       undefined;
 
     const origin = req.headers['origin'] as string | undefined;
+    const refererOrigin = this.extractOrigin(req.headers['referer'] as string | undefined);
+    const sourceOrigin = origin || refererOrigin;
     const clientApp =
       (req.headers['x-client-app'] as string) ||
-      this.resolveClientApp(origin) ||
-      origin ||
+      this.resolveClientApp(sourceOrigin) ||
+      sourceOrigin ||
       undefined;
 
     const ctx = createRequestContext(
@@ -42,5 +44,15 @@ export class ContextMiddleware implements NestMiddleware {
   private resolveClientApp(origin: string | undefined): string | undefined {
     if (!origin || !this.config.clientOrigins) return undefined;
     return this.config.clientOrigins[origin];
+  }
+
+  private extractOrigin(referer: string | undefined): string | undefined {
+    if (!referer) return undefined;
+    try {
+      const url = new URL(referer);
+      return url.origin;
+    } catch {
+      return undefined;
+    }
   }
 }
