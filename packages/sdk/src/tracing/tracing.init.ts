@@ -5,10 +5,16 @@ import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_DEPLOYMENT_ENVIRONMENT_NA
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import type { Instrumentation } from '@opentelemetry/instrumentation';
 import type { SpanExporter } from '@opentelemetry/sdk-trace-base';
-import type { ResolvedConfig, InstrumentationPlugin } from '../core/types';
+import type { ObservabilityConfig, ResolvedConfig, InstrumentationPlugin } from '../core/types';
+import { resolveConfig } from '../core/config';
 import { createSampler } from './sampling';
 
 let provider: NodeTracerProvider | null = null;
+
+export function setupTracing(config: ObservabilityConfig): void {
+  const resolved = resolveConfig(config);
+  initTracing(resolved);
+}
 
 export function initTracing(config: ResolvedConfig): NodeTracerProvider | null {
   if (!config.tracing.enabled) return null;

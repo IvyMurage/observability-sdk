@@ -61,3 +61,6 @@ export type { DiagnosticsReport } from './diagnostics/diagnostics.service';
 // Bootstrap
 export { setupProcessErrorHandlers } from './bootstrap/process-error-handler';
 export type { ProcessErrorHandlerOptions } from './bootstrap/process-error-handler';
+
+// Early tracing init (call in main.ts before importing AppModule)
+export { setupTracing } from './tracing/tracing.init';

@@ -329,6 +329,102 @@ export class OrderService {
 
 ---
 
+## Distributed tracing across services (HTTP)
+
+When Service A calls Service B via HTTP, trace context must be propagated so both services share the same `trace_id`. The SDK uses W3C `traceparent` headers for this.
+
+### How it works
+
+1. **Incoming request** — the SDK's `TracingInterceptor` extracts the `traceparent` header and creates a child span
+2. **Outgoing request** — you inject the current trace context into outgoing HTTP headers using `propagation.inject()`
+3. **Result** — both services log the same `trace_id`, and Tempo shows the full request chain
+
+### Setup in your HTTP client (AxiosService / fetch wrapper)
+
+Add two imports and one line where you build outgoing headers:
+
+```typescript
+import { propagation, context as otelContext } from '@opentelemetry/api';
+
+// In your buildHeaders() or wherever you construct outgoing request headers:
+const headers: Record<string, any> = {
+  authorization: req.headers.authorization,
+  'x-trace-id': traceId,
+  // ... other headers
+};
+
+// Inject W3C traceparent header for distributed tracing
+propagation.inject(otelContext.active(), headers);
+
+return headers;
+```
+
+`propagation.inject()` adds the `traceparent` header (e.g., `00-<trace_id>-<span_id>-01`) to the headers object. The receiving service's SDK automatically extracts it.
+
+### Verify it works
+
+1. Send a request that crosses services (e.g., api-gateway → auth-service)
+2. Check logs — both services should show the **same** `trace_id`
+3. Search that `trace_id` in Tempo — you should see spans from both services in one trace
+
+```
+# api-gateway log
+trace_id: "8cf631b00df8e35a403e57823ac58eee"
+service_name: "api-gateway"
+
+# auth-service log
+trace_id: "8cf631b00df8e35a403e57823ac58eee"
+service_name: "authentication-service"
+```
+
+### Peer dependency
+
+Each service that participates in distributed tracing must have `@opentelemetry/api` installed:
+
+```bash
+npm install @opentelemetry/api
+```
+
+The SDK already includes it as a dependency, but if your service imports from `@opentelemetry/api` directly (for `propagation.inject`), it must be in your `package.json` too.
+
+---
+
+## Microservice setup checklist
+
+Quick reference for adding observability to a new or existing NestJS service.
+
+### Required steps
+
+- [ ] Install SDK: `npm install @ivymurage-rw/observability`
+- [ ] Install OTel API: `npm install @opentelemetry/api`
+- [ ] **app.module.ts** — add `ObservabilityModule.forRoot({ ... })` and `ObservabilityHealthModule`
+- [ ] **main.ts** — add `setupProcessErrorHandlers()`, `bufferLogs: true`, and `app.useLogger(app.get(NestPinoLogger))`
+- [ ] Set `serviceName` consistently in both `app.module.ts` and `main.ts`
+- [ ] Set tracing exporter to `otlp-http` with your collector endpoint for non-local environments
+
+### For services that call other services (HTTP)
+
+- [ ] Add `propagation.inject(otelContext.active(), headers)` in your HTTP client's header builder
+- [ ] Import `{ propagation, context as otelContext } from '@opentelemetry/api'`
+
+### For services with database queries (Sequelize)
+
+- [ ] Add `sequelizeInstrumentation()` to instrumentations array
+- [ ] Wire `createSequelizeLogging(logger)` as Sequelize's `logging` option
+- [ ] Set `benchmark: true` in Sequelize config
+
+### Common mistakes
+
+| Mistake | Symptom | Fix |
+|---------|---------|-----|
+| `sampling: { ratio: 0.1 }` in dev | 90% of traces missing in Tempo | Remove sampling config for local dev |
+| `exporter: { type: 'console' }` | Traces print to stdout, not sent to collector | Change to `otlp-http` with endpoint |
+| Different `serviceName` in `main.ts` vs `app.module.ts` | Health logs show wrong service name | Use same name in both files |
+| Missing `propagation.inject()` in HTTP client | Each service generates its own `trace_id` | Add inject call (see distributed tracing section above) |
+| Missing `benchmark: true` in Sequelize | Query duration always `0` | Add `benchmark: true` to Sequelize config |
+
+---
+
 ## Kafka context propagation
 
 Trace context flows automatically across Kafka when you add `kafkaInstrumentation()`.
@@ -554,6 +650,7 @@ In your CI pipeline, set `GITHUB_TOKEN` as a secret:
 | `getContext` | Function | Get current request context |
 | `runWithContext` | Function | Run code within a request context |
 | `setupProcessErrorHandlers` | Function | Catch bootstrap crashes as structured JSON |
+| `setupTracing` | Function | Early tracing init (before NestJS bootstrap) |
 | `sanitizeHeaders` | Function | Redact sensitive header values |
 
 ---

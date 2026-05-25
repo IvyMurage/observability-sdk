@@ -94,13 +94,13 @@ export class ObservabilityModule implements NestModule, OnModuleDestroy {
           inject: [OBSERVABILITY_LOGGER],
         },
         ContextMiddleware,
+        ...(resolved.tracing.enabled
+          ? [{ provide: APP_INTERCEPTOR, useClass: TracingInterceptor }]
+          : []),
         {
           provide: APP_INTERCEPTOR,
           useClass: LoggingInterceptor,
         },
-        ...(resolved.tracing.enabled
-          ? [{ provide: APP_INTERCEPTOR, useClass: TracingInterceptor }]
-          : []),
         {
           provide: APP_FILTER,
           useClass: ObservabilityExceptionFilter,
