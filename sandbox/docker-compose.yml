@@ -16,8 +16,7 @@ services:
     image: prom/prometheus:v2.52.0
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9091:9090"
+    network_mode: host
 
   loki:
     image: grafana/loki:2.9.6
@@ -34,6 +33,15 @@ services:
       - "3200:3200"   # Tempo HTTP
       - "9095:9095"   # Tempo gRPC
 
+  promtail:
+    image: grafana/promtail:2.9.6
+    volumes:
+      - ./promtail/config.yaml:/etc/promtail/config.yaml:ro
+      - /tmp/observability-logs:/var/log/services:ro
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+
   grafana:
     image: grafana/grafana:10.4.2
     environment:
@@ -42,9 +50,4 @@ services:
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    ports:
-      - "3000:3000"
-    depends_on:
-      - prometheus
-      - loki
-      - tempo
+    network_mode: host

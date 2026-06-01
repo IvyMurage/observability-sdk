@@ -300,31 +300,127 @@ Without it, structured logging still works — you just won't get OTel trace spa
 
 ## Custom spans
 
-Use the `@Span` decorator for automatic span management, or `ObservabilityTracer` for manual control:
+The SDK auto-creates spans for HTTP requests and database queries. Custom spans let you trace **business logic** that happens between those boundaries — the "why was this slow?" that doesn't show up in framework-level instrumentation.
+
+### When to add custom spans
+
+| Use case | Why | Example |
+|----------|-----|---------|
+| External API calls | Third-party latency is invisible without a span | Credit score API, payment gateway, SMS provider |
+| Multi-step business logic | A single request handler that does several things | Loan approval: validate → score → decide → notify |
+| Background/async work | Jobs that run outside HTTP request context | Kafka consumers, cron tasks, queue workers |
+| Conditional branches | Different code paths with different performance | "fast path" cache hit vs "slow path" DB lookup |
+| File/blob operations | I/O that can stall silently | PDF generation, S3 uploads, file parsing |
+
+### `@Span` decorator (recommended for most cases)
+
+Wraps a method in a span automatically. The span starts when the method is called and ends when it resolves (or rejects). Errors are recorded on the span.
 
 ```typescript
-import { ObservabilityTracer, Span } from '@ivymurage-rw/observability';
+import { Span, ObservabilityLogger } from '@ivymurage-rw/observability';
 
 @Injectable()
-export class OrderService {
-  constructor(private tracer: ObservabilityTracer) {}
+export class LoanService {
+  constructor(private logger: ObservabilityLogger) {}
 
-  // Decorator — creates and closes span automatically
-  @Span('validate-order')
-  async validateOrder(data: CreateOrderDto) {
+  @Span('validate-loan-application')
+  async validateApplication(data: CreateLoanDto) {
+    // This entire method is wrapped in a span.
+    // If it throws, the span records the error automatically.
     return this.validator.check(data);
   }
 
-  // Manual — full control over span attributes
-  async processOrder(orderId: string) {
-    return this.tracer.startActiveSpan('process-order', async (span) => {
+  @Span('check-credit-score')
+  async getCreditScore(nationalId: string): Promise<number> {
+    // External API call — span captures the full round-trip time.
+    // In Tempo you'll see: HTTP request → check-credit-score → external call
+    const response = await this.httpService.get(`/api/credit/${nationalId}`);
+    return response.data.score;
+  }
+
+  @Span('process-loan-decision')
+  async processDecision(applicationId: string) {
+    const app = await this.findApplication(applicationId);
+    const score = await this.getCreditScore(app.nationalId);
+    // Each @Span method becomes a child span in the trace.
+    // Tempo shows the full chain: processDecision → getCreditScore → validateApplication
+    if (score >= 700) {
+      await this.approve(applicationId);
+    } else {
+      await this.reject(applicationId, 'Low credit score');
+    }
+  }
+}
+```
+
+### Manual spans with `ObservabilityTracer`
+
+Use when you need to attach attributes, track conditional paths, or wrap only part of a method:
+
+```typescript
+import { ObservabilityTracer, ObservabilityLogger } from '@ivymurage-rw/observability';
+
+@Injectable()
+export class PaymentService {
+  constructor(
+    private tracer: ObservabilityTracer,
+    private logger: ObservabilityLogger,
+  ) {}
+
+  async processPayment(orderId: string, amount: number) {
+    // Manual span with custom attributes
+    return this.tracer.startActiveSpan('process-payment', async (span) => {
       span.setAttribute('order.id', orderId);
-      const result = await this.process(orderId);
-      span.setAttribute('order.status', result.status);
-      return result;
+      span.setAttribute('payment.amount', amount);
+      span.setAttribute('payment.currency', 'RWF');
+
+      try {
+        const gateway = await this.selectGateway(amount);
+        span.setAttribute('payment.gateway', gateway.name);
+
+        const result = await gateway.charge(orderId, amount);
+        span.setAttribute('payment.status', result.status);
+        span.setAttribute('payment.transaction_id', result.transactionId);
+
+        this.logger.info('Payment processed', {
+          orderId,
+          amount,
+          gateway: gateway.name,
+          transactionId: result.transactionId,
+        });
+
+        return result;
+      } catch (err) {
+        // Error is recorded on span AND logged
+        this.logger.error('Payment failed', {
+          orderId,
+          amount,
+          error: err.message,
+        });
+        throw err; // tracer.startActiveSpan auto-records the error on the span
+      }
     });
   }
 }
+```
+
+### What it looks like in Tempo
+
+Without custom spans:
+```
+HTTP POST /api/loans/apply  ─────────────────────────── 850ms
+  └─ SELECT * FROM applications ...  ── 12ms
+  └─ INSERT INTO applications ...  ─── 8ms
+```
+
+With custom spans:
+```
+HTTP POST /api/loans/apply  ─────────────────────────── 850ms
+  └─ validate-loan-application  ──────── 15ms
+  │   └─ SELECT * FROM applications ... ── 12ms
+  └─ check-credit-score  ──────────────── 620ms   ← found the bottleneck
+  └─ process-loan-decision  ─────────── 200ms
+      └─ INSERT INTO applications ...  ─── 8ms
 ```
 
 ---
@@ -427,31 +523,145 @@ Quick reference for adding observability to a new or existing NestJS service.
 
 ## Kafka context propagation
 
-Trace context flows automatically across Kafka when you add `kafkaInstrumentation()`.
+Kafka messages are fire-and-forget — without trace propagation, the consumer has no idea which request triggered the message. The SDK bridges this gap by injecting/extracting W3C trace context in Kafka headers.
 
-For manual header control:
+### How it works
+
+```
+Producer (api-gateway)                    Consumer (notification-service)
+─────────────────────                     ──────────────────────────────
+HTTP request arrives                      Kafka message received
+  └─ trace_id: abc123                       └─ headers contain traceparent
+  └─ producer.send()                        └─ withKafkaContext() extracts it
+     └─ injectKafkaHeaders()                └─ trace_id: abc123 (same!)
+        └─ adds traceparent to headers      └─ child span created
+```
+
+In Tempo, you see the full chain: `HTTP request → kafka-produce → kafka-consume → process-event` all under one trace.
+
+### Step 1: Add instrumentation (app.module.ts)
 
 ```typescript
-import { injectKafkaHeaders, withKafkaContext } from '@ivymurage-rw/observability';
+import {
+  ObservabilityModule,
+  httpInstrumentation,
+  kafkaInstrumentation,
+} from '@ivymurage-rw/observability';
 
-// Producer: inject trace context into headers
-await producer.send({
-  topic: 'events',
-  messages: [{
-    value: JSON.stringify(data),
-    headers: injectKafkaHeaders(),
-  }],
-});
-
-// Consumer: extract trace context from headers
-await consumer.run({
-  eachMessage: async ({ message }) => {
-    await withKafkaContext(message.headers, 'process-event', async () => {
-      await processEvent(message);
-    });
-  },
-});
+@Module({
+  imports: [
+    ObservabilityModule.forRoot({
+      serviceName: 'api-gateway',
+      instrumentations: [
+        httpInstrumentation(),
+        kafkaInstrumentation(),  // Auto-instruments kafkajs produce/consume
+      ],
+    }),
+  ],
+})
+export class AppModule {}
 ```
+
+This auto-instruments `kafkajs` — every `producer.send()` and `consumer.run()` gets traced automatically with zero code changes.
+
+### Step 2: Manual header injection (for custom producers)
+
+If you build Kafka messages manually or use a wrapper, inject headers explicitly:
+
+```typescript
+import { injectKafkaHeaders, ObservabilityLogger } from '@ivymurage-rw/observability';
+
+@Injectable()
+export class NotificationProducer {
+  constructor(private logger: ObservabilityLogger) {}
+
+  async sendLoanApprovalNotification(loanId: string, userId: string) {
+    const payload = { loanId, userId, type: 'LOAN_APPROVED' };
+
+    await this.producer.send({
+      topic: 'notifications',
+      messages: [{
+        key: userId,
+        value: JSON.stringify(payload),
+        // injectKafkaHeaders() reads the active trace context
+        // and adds traceparent + tracestate to headers
+        headers: injectKafkaHeaders({
+          'x-event-type': 'LOAN_APPROVED',
+        }),
+      }],
+    });
+
+    this.logger.info('Notification event published', { loanId, userId, topic: 'notifications' });
+  }
+}
+```
+
+### Step 3: Consumer — extract context and continue the trace
+
+```typescript
+import { withKafkaContext, ObservabilityLogger } from '@ivymurage-rw/observability';
+
+@Injectable()
+export class NotificationConsumer {
+  constructor(private logger: ObservabilityLogger) {}
+
+  async onModuleInit() {
+    await this.consumer.run({
+      eachMessage: async ({ topic, partition, message }) => {
+        // withKafkaContext extracts the traceparent from message headers,
+        // creates a consumer span, and runs your handler inside that context.
+        // All logs inside the callback get the original trace_id.
+        await withKafkaContext(
+          message.headers,
+          `process-${topic}`,
+          async () => {
+            const payload = JSON.parse(message.value.toString());
+
+            this.logger.info('Processing notification', {
+              topic,
+              partition,
+              eventType: payload.type,
+              userId: payload.userId,
+            });
+
+            switch (payload.type) {
+              case 'LOAN_APPROVED':
+                await this.sendApprovalEmail(payload);
+                break;
+              case 'LOAN_REJECTED':
+                await this.sendRejectionEmail(payload);
+                break;
+              default:
+                this.logger.warn('Unknown event type', { eventType: payload.type });
+            }
+          },
+        );
+      },
+    });
+  }
+}
+```
+
+### What you see in Tempo
+
+```
+HTTP POST /api/loans/apply  ──────────────────── 850ms   (api-gateway)
+  └─ process-loan-decision  ────────── 200ms
+  └─ notifications send  ──────────── 5ms               (kafka produce)
+      └─ process-notifications  ────── 120ms             (notification-service)
+          └─ send-approval-email  ──── 95ms
+```
+
+All under one `trace_id`, across services, across Kafka.
+
+### Peer dependencies
+
+```bash
+npm install kafkajs
+npm install @opentelemetry/instrumentation-kafkajs
+```
+
+Both are optional — the SDK skips Kafka instrumentation if they're not installed.
 
 ---
 

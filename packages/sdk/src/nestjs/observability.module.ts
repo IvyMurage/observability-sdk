@@ -24,6 +24,7 @@ import { MetricsController } from '../metrics/metrics.controller';
 import { ContextMiddleware } from './context.middleware';
 import { LoggingInterceptor } from './logging.interceptor';
 import { TracingInterceptor } from './tracing.interceptor';
+import { MetricsInterceptor } from './metrics.interceptor';
 import { ObservabilityExceptionFilter } from './exception.filter';
 
 let initialized = false;
@@ -101,6 +102,9 @@ export class ObservabilityModule implements NestModule, OnModuleDestroy {
           provide: APP_INTERCEPTOR,
           useClass: LoggingInterceptor,
         },
+        ...(resolved.metrics.enabled
+          ? [{ provide: APP_INTERCEPTOR, useClass: MetricsInterceptor }]
+          : []),
         {
           provide: APP_FILTER,
           useClass: ObservabilityExceptionFilter,

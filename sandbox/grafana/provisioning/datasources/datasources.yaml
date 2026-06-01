@@ -4,13 +4,14 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://prometheus:9090
+    url: http://localhost:9090
     isDefault: true
 
   - name: Loki
     type: loki
     access: proxy
-    url: http://loki:3100
+    uid: loki
+    url: http://localhost:3100
     jsonData:
       derivedFields:
         - datasourceUid: tempo
@@ -22,10 +23,16 @@ datasources:
     type: tempo
     access: proxy
     uid: tempo
-    url: http://tempo:3200
+    url: http://localhost:3200
     jsonData:
       tracesToLogs:
         datasourceUid: loki
         filterByTraceID: true
+        filterBySpanID: false
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        mappedTags:
+          - key: service.name
+            value: service_name
       serviceMap:
         datasourceUid: prometheus
