@@ -425,6 +425,81 @@ HTTP POST /api/loans/apply  ─────────────────�
 
 ---
 
+## External API observability
+
+Services that call external systems (GIS, payment gateways, government APIs, workflow engines) are the hardest to debug without observability. These calls are often slow, flaky, and outside your control.
+
+### Integration pattern
+
+1. **Swap `Logger` → `ObservabilityLogger`** — logs get `trace_id`, `span_id`, `service_name` automatically
+2. **Add `@Span()` to each method** — external call latency becomes visible in Tempo
+3. **Use structured metadata** — replace string interpolation with key-value pairs
+
+```typescript
+import { ObservabilityLogger, Span } from '@ivymurage-rw/observability';
+
+@Injectable()
+export class ExternalIntegrationService {
+  constructor(
+    private readonly axiosService: AxiosService,
+    private readonly logger: ObservabilityLogger,
+  ) {}
+
+  @Span('esri-lookup')
+  async getESRIInfo(upi: string) {
+    try {
+      this.logger.info('Fetching ESRI data', { upi });
+      const result = await this.axiosService.request('GET', `${url}/api/external/esri/upi`, ...);
+      this.logger.info('ESRI data received', { upi });
+      return result;
+    } catch (error) {
+      this.logger.error('ESRI lookup failed', { upi, error: error.message });
+      return null;
+    }
+  }
+}
+```
+
+### Recommended span names by integration type
+
+| Integration | Span name | Why trace it |
+|-------------|-----------|-------------|
+| Access control login | `access-control-login` | Auth token fetch, can timeout |
+| ESRI / GIS lookup | `esri-lookup` | External GIS service, 15s timeout |
+| Land center lookup | `land-center-lookup` | Government land registry |
+| Credit score submission | `credit-score-submit` | Cross-service, affects loan decisions |
+| iBank budget lookup | `ibank-budget-lookup` | Core banking integration |
+| Minecofin loan submit | `minecofin-loan-submit` | Government system, slow and flaky |
+| Workflow start/resume | `workflow-start`, `workflow-resume` | Workflow engine, multi-step |
+| Workflow audit history | `workflow-audit-history` | Can return large payloads |
+| Auth get departments | `auth-get-departments` | Cross-service lookup |
+| Config TAT defaults | `config-tat-defaults` | Configuration service |
+
+### What you see in Tempo
+
+Without spans — one long HTTP request, no breakdown:
+```
+HTTP POST /api/loans/apply  ─────────────────────── 3200ms
+```
+
+With `@Span` on each external call:
+```
+HTTP POST /api/loans/apply  ─────────────────────── 3200ms
+  └─ access-control-login  ────── 450ms
+  └─ esri-lookup  ─────────────── 1800ms   ← bottleneck found
+  └─ credit-score-submit  ─────── 320ms
+  └─ workflow-start  ──────────── 180ms
+```
+
+### Key rules
+
+- **Always `@Span` external calls** — they're the most common source of latency
+- **Use `this.logger.error()` in catch blocks** — errors get trace context automatically
+- **Use structured metadata** — `{ upi, error: error.message }` not string concatenation
+- **Keep span names short and consistent** — `service-action` pattern (e.g., `esri-lookup`, `workflow-start`)
+
+---
+
 ## Distributed tracing across services (HTTP)
 
 When Service A calls Service B via HTTP, trace context must be propagated so both services share the same `trace_id`. The SDK uses W3C `traceparent` headers for this.
