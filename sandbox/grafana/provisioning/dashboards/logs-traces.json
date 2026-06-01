@@ -44,7 +44,7 @@
       ]
     },
     {
-      "title": "Error Logs",
+      "title": "Warnings & Errors",
       "type": "logs",
       "gridPos": { "h": 10, "w": 24, "x": 0, "y": 6 },
       "datasource": { "type": "loki", "uid": "loki" },
@@ -60,7 +60,7 @@
       },
       "targets": [
         {
-          "expr": "{service_name=~\"$service\"} |= \"error\" or {service_name=~\"$service\", level=~\"50|error\"}",
+          "expr": "{service_name=~\"$service\", level=~\"40|50|warn|error\"}",
           "refId": "A"
         }
       ]
@@ -101,7 +101,7 @@
       },
       "targets": [
         {
-          "query": "{resource.service.name=~\"$service\"} | status = error || duration > 1s",
+          "query": "{resource.service.name=~\"$service\"}",
           "queryType": "traceql",
           "refId": "A",
           "limit": 20,
