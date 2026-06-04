@@ -67,7 +67,7 @@ import { NestFactory } from '@nestjs/core';
 import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage-rw/observability';
 import { AppModule } from './app.module';
 
-setupProcessErrorHandlers({ serviceName: 'your-service-name' });
+setupProcessErrorHandlers({ serviceName: 'your-service-name', exitOnUnhandledRejection: false, });
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
