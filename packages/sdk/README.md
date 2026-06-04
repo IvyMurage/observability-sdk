@@ -12,14 +12,15 @@ Structured logging, distributed tracing, and Prometheus metrics for NestJS servi
 | Health checks | Liveness, readiness, and startup probes | `GET /health` |
 | Sensitive data redaction | Passwords, tokens, keys auto-censored | automatic |
 | Request context | Request ID, correlation ID via AsyncLocalStorage | automatic |
+| Error classification | Smart extraction with log levels (4xx=warn, 5xx=error) | automatic |
 
 Every log line automatically includes `trace_id`, `request_id`, `correlation_id`, and `span_id`.
 
 ---
 
-## Quick start
+# Part 1: Setup
 
-### 1. Install
+## 1. Install
 
 ```bash
 npm install @ivymurage-rw/observability
@@ -30,7 +31,7 @@ npm install -D pino-pretty
 
 Your NestJS peer dependencies (`@nestjs/common`, `@nestjs/core`, `rxjs`, `reflect-metadata`) are already in your project.
 
-### 2. Wire the module
+## 2. Wire the module
 
 **app.module.ts** — import `ObservabilityModule` and pick only the instrumentations your service uses:
 
@@ -60,7 +61,7 @@ import {
 export class AppModule {}
 ```
 
-**main.ts** — add `setupProcessErrorHandlers` at the top to catch bootstrap crashes, then add `bufferLogs: true` and set the SDK logger:
+**main.ts** — add `setupProcessErrorHandlers` at the top, `bufferLogs: true`, set the SDK logger, and **remove any custom exception filters**:
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
@@ -72,26 +73,30 @@ setupProcessErrorHandlers({ serviceName: 'your-service-name' });
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(NestPinoLogger));
+
+  // IMPORTANT: Do NOT add app.useGlobalFilters(new HttpExceptionFilter())
+  // The SDK registers its own exception filter via APP_FILTER automatically.
+  // Custom exception filters override the SDK and break error logging.
+
   await app.listen(3000);
 }
 bootstrap();
 ```
 
-`setupProcessErrorHandlers` catches `uncaughtException` and `unhandledRejection` events that happen before or outside NestJS — like missing modules, database connection failures during import, or Kafka broker unreachable errors. These are output as structured JSON to stderr so your log aggregator can parse them.
+`setupProcessErrorHandlers` catches `uncaughtException` and `unhandledRejection` events that happen before or outside NestJS — like missing modules, database connection failures during import, or Kafka broker unreachable errors.
 
-### 3. Use in your services
+## 3. Use in your services
 
 Inject `ObservabilityLogger` anywhere — it's globally available, no extra providers needed:
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { ObservabilityLogger, Span } from '@ivymurage-rw/observability';
+import { ObservabilityLogger } from '@ivymurage-rw/observability';
 
 @Injectable()
 export class PaymentService {
   constructor(private logger: ObservabilityLogger) {}
 
-  @Span('process-payment')
   async processPayment(orderId: string) {
     this.logger.info('processing payment', { orderId });
     const result = await this.gateway.charge(orderId);
@@ -101,7 +106,7 @@ export class PaymentService {
 }
 ```
 
-### 4. Verify
+## 4. Verify
 
 ```bash
 curl http://localhost:3000/health    # health check
@@ -120,389 +125,185 @@ You should see structured logs in your terminal:
 
 ---
 
-## Configuration reference
+# Part 2: What the SDK does automatically
 
-All fields except `serviceName` are optional with sensible defaults.
+Once set up, the SDK handles these without any extra code:
 
-```typescript
-ObservabilityModule.forRoot({
-  serviceName: 'my-service',        // required
-  environment: 'production',        // defaults to NODE_ENV
-  version: '1.2.3',                 // defaults to npm_package_version
+## Auto request logging
 
-  logger: {
-    level: 'info',                  // debug | info | warn | error | fatal
-    prettyPrint: false,             // auto: true in dev, false in prod
-    redaction: {
-      paths: ['*.password', '*.ssn'],
-      censor: '[REDACTED]',
-    },
-  },
-
-  tracing: {
-    enabled: true,
-    exporter: {
-      type: 'otlp-http',           // otlp-http | otlp-grpc | console | none
-      endpoint: 'http://otel-collector:4318',
-    },
-    sampling: {
-      ratio: 0.1,                  // 10% in prod (auto: 100% in dev)
-    },
-  },
-
-  metrics: {
-    enabled: true,
-    prefix: 'myservice',           // metric name prefix
-    defaultMetrics: true,           // Node.js process metrics
-    labels: { team: 'platform' },
-  },
-
-  instrumentations: [ /* ... */ ],
-})
-```
-
-### Local development tip
-
-See traces in your terminal without running an OTel collector:
-
-```typescript
-tracing: {
-  exporter: { type: 'console' },
-}
-```
-
----
-
-## Available instrumentations
-
-| Instrumentation | When to use | Optional dependency |
-|----------------|-------------|-------------------|
-| `httpInstrumentation()` | Always (traces HTTP requests) | built-in |
-| `kafkaInstrumentation()` | Service uses KafkaJS | `@opentelemetry/instrumentation-kafkajs` |
-| `redisInstrumentation()` | Service uses Redis/ioredis | `@opentelemetry/instrumentation-ioredis` |
-| `mysqlInstrumentation()` | Service uses MySQL | `@opentelemetry/instrumentation-mysql2` |
-| `pgInstrumentation()` | Service uses PostgreSQL | `@opentelemetry/instrumentation-pg` |
-| `sequelizeInstrumentation()` | Service uses Sequelize (any dialect) | `opentelemetry-instrumentation-sequelize` |
-
-The SDK logs a helpful message if an optional dependency is missing — it won't crash.
-
----
-
-## Database query observability (Sequelize)
-
-Structured logging and distributed tracing for all Sequelize queries — works with MSSQL (Tedious), PostgreSQL, MySQL, and SQLite. No driver-level patching.
-
-### 1. Add the instrumentation
-
-```typescript
-import {
-  ObservabilityModule,
-  sequelizeInstrumentation,
-  httpInstrumentation,
-} from '@ivymurage-rw/observability';
-
-@Module({
-  imports: [
-    ObservabilityModule.forRoot({
-      serviceName: 'my-service',
-      instrumentations: [
-        httpInstrumentation(),
-        sequelizeInstrumentation({ slowQueryThreshold: 500 }),
-      ],
-    }),
-  ],
-})
-export class AppModule {}
-```
-
-### 2. Wire Sequelize logging
-
-In your database module, pass `createSequelizeLogging` as Sequelize's `logging` option:
-
-```typescript
-import { ObservabilityLogger, createSequelizeLogging } from '@ivymurage-rw/observability';
-
-// In your SequelizeModule.forRootAsync config:
-useFactory: (logger: ObservabilityLogger) => ({
-  dialect: 'mssql',  // or 'postgres', 'mysql', 'sqlite'
-  // ... connection config
-  logging: createSequelizeLogging(logger, { slowQueryThreshold: 500 }),
-  benchmark: true,  // required — provides query timing
-}),
-inject: [ObservabilityLogger],
-```
-
-### What you get
-
-Every DB query is logged as structured JSON, correlated with the current request:
+Every HTTP request produces two log entries:
 
 ```json
-{
-  "level": "debug",
-  "msg": "query executed",
-  "event": "db.query",
-  "db.operation": "SELECT",
-  "table": "users",
-  "duration_ms": 12,
-  "success": true,
-  "trace_id": "abc123...",
-  "request_id": "req-456...",
-  "service_name": "authentication-service"
-}
+{"level":"info","msg":"request started","method":"POST","url":"/api/users/login","trace_id":"abc..."}
+{"level":"info","msg":"request completed","method":"POST","url":"/api/users/login","statusCode":200,"duration_ms":142.5}
 ```
 
-Slow queries are automatically logged as warnings:
+## Auto error classification
+
+The SDK's exception filter catches all thrown exceptions and logs them with smart message extraction and proper log levels:
+
+| Status | Level | Event | Example message |
+|--------|-------|-------|-----------------|
+| 400 | `warn` | `bad_request` | `Invalid token provided` |
+| 400 (validation) | `warn` | `validation_failed` | `email must be valid, name required` |
+| 401 | `warn` | `authentication_failed` | `jwt malformed` |
+| 403 | `warn` | `authorization_failed` | `Insufficient permissions` |
+| 404 | `warn` | `not_found` | `Cannot GET /api/nonexistent` |
+| 500 | `error` | `server_error` | `Connection refused` (includes stack trace) |
+
+Example log output for a validation error:
 
 ```json
 {
   "level": "warn",
-  "msg": "slow query detected",
-  "event": "db.slow_query",
-  "db.operation": "SELECT",
-  "table": "bookings",
-  "duration_ms": 3200
+  "msg": "validation_failed",
+  "event": "validation_failed",
+  "statusCode": 400,
+  "message": "email must be valid, name should not be empty",
+  "validationErrors": ["email must be valid", "name should not be empty"],
+  "method": "POST",
+  "url": "/api/users/login",
+  "trace_id": "abc123...",
+  "span_id": "def456..."
 }
 ```
 
-### Configuration options
+**Important:** The exception filter only catches exceptions that **propagate** — if your controller catches errors in a `try/catch` and returns a manual response, the SDK never sees them. See [Logging errors in catch blocks](#logging-errors-in-catch-blocks) for how to handle this.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `logging` | `true` | Enable structured query logging |
-| `tracing` | `true` | Enable OpenTelemetry span creation |
-| `sanitizeQueries` | `true` | Replace literals with `?` in captured SQL |
-| `captureSqlText` | `false` | Include sanitized SQL in logs (disabled for security) |
-| `slowQueryThreshold` | `500` | Milliseconds — queries slower than this trigger a warning |
+## Auto HTTP metrics
 
-### Security
+Every request records:
+- `http_requests_total` — Counter with `method`, `route`, `status_code` labels
+- `http_request_duration_seconds` — Histogram with p50/p95/p99 percentiles
 
-SQL values are **never** logged by default. When `captureSqlText` is enabled, queries are automatically sanitized:
+## Auto trace context
 
-```
--- Raw (never logged)
-SELECT * FROM users WHERE email='ivy@test.com' AND id=123
-
--- Sanitized (logged when captureSqlText: true)
-SELECT * FROM users WHERE email='?' AND id=?
-```
-
-### Optional dependency
-
-For OpenTelemetry span tracing, install:
-
-```bash
-npm install opentelemetry-instrumentation-sequelize
-```
-
-Without it, structured logging still works — you just won't get OTel trace spans for individual queries.
+All log entries include `trace_id`, `span_id`, `service_name`, `environment` from OpenTelemetry context. No manual passing needed.
 
 ---
 
-## Custom spans
+# Part 3: Adding business logic logging
 
-The SDK auto-creates spans for HTTP requests and database queries. Custom spans let you trace **business logic** that happens between those boundaries — the "why was this slow?" that doesn't show up in framework-level instrumentation.
+The SDK handles request lifecycle and exceptions automatically. For business-specific events, you add logging in your code.
 
-### When to add custom spans
+## When to add manual logging
 
-| Use case | Why | Example |
-|----------|-----|---------|
-| External API calls | Third-party latency is invisible without a span | Credit score API, payment gateway, SMS provider |
-| Multi-step business logic | A single request handler that does several things | Loan approval: validate → score → decide → notify |
-| Background/async work | Jobs that run outside HTTP request context | Kafka consumers, cron tasks, queue workers |
-| Conditional branches | Different code paths with different performance | "fast path" cache hit vs "slow path" DB lookup |
-| File/blob operations | I/O that can stall silently | PDF generation, S3 uploads, file parsing |
+| Situation | What to log | Level |
+|-----------|------------|-------|
+| Business decision | Loan approved/rejected, payment processed | `info` |
+| Expected failure | Wrong password, insufficient balance | `warn` |
+| External call | Before/after calling third-party API | `info` |
+| Unexpected error | Unhandled exception in catch block | `error` |
 
-### `@Span` decorator (recommended for most cases)
+## Logging errors in catch blocks
 
-Wraps a method in a span automatically. The span starts when the method is called and ends when it resolves (or rejects). Errors are recorded on the span.
+Many controllers use `try/catch` with `ResponseCommon.handleError()`. The SDK's exception filter never sees these errors because they're caught before propagating. Add logging in the catch block:
 
-```typescript
-import { Span, ObservabilityLogger } from '@ivymurage-rw/observability';
-
-@Injectable()
-export class LoanService {
-  constructor(private logger: ObservabilityLogger) {}
-
-  @Span('validate-loan-application')
-  async validateApplication(data: CreateLoanDto) {
-    // This entire method is wrapped in a span.
-    // If it throws, the span records the error automatically.
-    return this.validator.check(data);
-  }
-
-  @Span('check-credit-score')
-  async getCreditScore(nationalId: string): Promise<number> {
-    // External API call — span captures the full round-trip time.
-    // In Tempo you'll see: HTTP request → check-credit-score → external call
-    const response = await this.httpService.get(`/api/credit/${nationalId}`);
-    return response.data.score;
-  }
-
-  @Span('process-loan-decision')
-  async processDecision(applicationId: string) {
-    const app = await this.findApplication(applicationId);
-    const score = await this.getCreditScore(app.nationalId);
-    // Each @Span method becomes a child span in the trace.
-    // Tempo shows the full chain: processDecision → getCreditScore → validateApplication
-    if (score >= 700) {
-      await this.approve(applicationId);
-    } else {
-      await this.reject(applicationId, 'Low credit score');
-    }
-  }
-}
-```
-
-### Manual spans with `ObservabilityTracer`
-
-Use when you need to attach attributes, track conditional paths, or wrap only part of a method:
+### Option A: Inline (simple, for a few catch blocks)
 
 ```typescript
-import { ObservabilityTracer, ObservabilityLogger } from '@ivymurage-rw/observability';
+import { ObservabilityLogger } from '@ivymurage-rw/observability';
 
-@Injectable()
-export class PaymentService {
+@Controller('api/users')
+export class UsersController {
   constructor(
-    private tracer: ObservabilityTracer,
-    private logger: ObservabilityLogger,
-  ) {}
-
-  async processPayment(orderId: string, amount: number) {
-    // Manual span with custom attributes
-    return this.tracer.startActiveSpan('process-payment', async (span) => {
-      span.setAttribute('order.id', orderId);
-      span.setAttribute('payment.amount', amount);
-      span.setAttribute('payment.currency', 'RWF');
-
-      try {
-        const gateway = await this.selectGateway(amount);
-        span.setAttribute('payment.gateway', gateway.name);
-
-        const result = await gateway.charge(orderId, amount);
-        span.setAttribute('payment.status', result.status);
-        span.setAttribute('payment.transaction_id', result.transactionId);
-
-        this.logger.info('Payment processed', {
-          orderId,
-          amount,
-          gateway: gateway.name,
-          transactionId: result.transactionId,
-        });
-
-        return result;
-      } catch (err) {
-        // Error is recorded on span AND logged
-        this.logger.error('Payment failed', {
-          orderId,
-          amount,
-          error: err.message,
-        });
-        throw err; // tracer.startActiveSpan auto-records the error on the span
-      }
-    });
-  }
-}
-```
-
-### What it looks like in Tempo
-
-Without custom spans:
-```
-HTTP POST /api/loans/apply  ─────────────────────────── 850ms
-  └─ SELECT * FROM applications ...  ── 12ms
-  └─ INSERT INTO applications ...  ─── 8ms
-```
-
-With custom spans:
-```
-HTTP POST /api/loans/apply  ─────────────────────────── 850ms
-  └─ validate-loan-application  ──────── 15ms
-  │   └─ SELECT * FROM applications ... ── 12ms
-  └─ check-credit-score  ──────────────── 620ms   ← found the bottleneck
-  └─ process-loan-decision  ─────────── 200ms
-      └─ INSERT INTO applications ...  ─── 8ms
-```
-
----
-
-## External API observability
-
-Services that call external systems (GIS, payment gateways, government APIs, workflow engines) are the hardest to debug without observability. These calls are often slow, flaky, and outside your control.
-
-### Integration pattern
-
-1. **Swap `Logger` → `ObservabilityLogger`** — logs get `trace_id`, `span_id`, `service_name` automatically
-2. **Add `@Span()` to each method** — external call latency becomes visible in Tempo
-3. **Use structured metadata** — replace string interpolation with key-value pairs
-
-```typescript
-import { ObservabilityLogger, Span } from '@ivymurage-rw/observability';
-
-@Injectable()
-export class ExternalIntegrationService {
-  constructor(
-    private readonly axiosService: AxiosService,
+    private readonly usersService: UsersService,
     private readonly logger: ObservabilityLogger,
   ) {}
 
-  @Span('esri-lookup')
-  async getESRIInfo(upi: string) {
+  @Post('login')
+  async login(@Body() dto: UserLoginDto, @Res() res: Response) {
     try {
-      this.logger.info('Fetching ESRI data', { upi });
-      const result = await this.axiosService.request('GET', `${url}/api/external/esri/upi`, ...);
-      this.logger.info('ESRI data received', { upi });
-      return result;
+      const user = await this.usersService.login(dto);
+      return ResponseCommon.handleSuccess(HttpStatus.OK, 'Login successful', res, user);
     } catch (error) {
-      this.logger.error('ESRI lookup failed', { upi, error: error.message });
-      return null;
+      this.logger.warn('Login failed', {
+        statusCode: error?.getStatus?.() || 500,
+        message: error?.message,
+      });
+      return ResponseCommon.handleError(error?.getStatus() || 500, error?.message, res);
     }
   }
 }
 ```
 
-### Recommended span names by integration type
+### Option B: Helper method (recommended for controllers with many catch blocks)
 
-| Integration | Span name | Why trace it |
-|-------------|-----------|-------------|
-| Access control login | `access-control-login` | Auth token fetch, can timeout |
-| ESRI / GIS lookup | `esri-lookup` | External GIS service, 15s timeout |
-| Land center lookup | `land-center-lookup` | Government land registry |
-| Credit score submission | `credit-score-submit` | Cross-service, affects loan decisions |
-| iBank budget lookup | `ibank-budget-lookup` | Core banking integration |
-| Minecofin loan submit | `minecofin-loan-submit` | Government system, slow and flaky |
-| Workflow start/resume | `workflow-start`, `workflow-resume` | Workflow engine, multi-step |
-| Workflow audit history | `workflow-audit-history` | Can return large payloads |
-| Auth get departments | `auth-get-departments` | Cross-service lookup |
-| Config TAT defaults | `config-tat-defaults` | Configuration service |
+```typescript
+import { ObservabilityLogger } from '@ivymurage-rw/observability';
 
-### What you see in Tempo
+@Controller('api/users')
+export class UsersController {
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly logger: ObservabilityLogger,
+  ) {}
 
-Without spans — one long HTTP request, no breakdown:
+  private logCaughtError(error: any): void {
+    const status = error?.getStatus?.() || error?.statusCode || 500;
+    const message = error?.response?.message || error?.message || 'Unknown error';
+    if (status >= 500) {
+      this.logger.error('request_error', { statusCode: status, message, stack: error?.stack });
+    } else {
+      this.logger.warn('request_error', { statusCode: status, message });
+    }
+  }
+
+  @Post('login')
+  async login(@Body() dto: UserLoginDto, @Res() res: Response) {
+    try {
+      const user = await this.usersService.login(dto);
+      return ResponseCommon.handleSuccess(HttpStatus.OK, 'Login successful', res, user);
+    } catch (error) {
+      this.logCaughtError(error);
+      return ResponseCommon.handleError(error?.getStatus() || 500, error?.message, res);
+    }
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Res() res: Response) {
+    try {
+      const result = await this.usersService.forgotPassword(dto);
+      return ResponseCommon.handleSuccess(HttpStatus.OK, 'Reset link sent', res, result);
+    } catch (error) {
+      this.logCaughtError(error);
+      return ResponseCommon.handleError(error?.getStatus() || 500, error?.message, res);
+    }
+  }
+}
 ```
-HTTP POST /api/loans/apply  ─────────────────────── 3200ms
+
+The helper extracts the real message from NestJS exception shapes, picks the right log level, and includes stack traces only for 5xx. All entries automatically get `trace_id` and `span_id` from the SDK's pino mixin.
+
+### Output examples
+
+Wrong password (401):
+```json
+{"level":"warn","msg":"request_error","statusCode":401,"message":"Username or password is incorrect","trace_id":"abc...","service_name":"authentication-service"}
 ```
 
-With `@Span` on each external call:
-```
-HTTP POST /api/loans/apply  ─────────────────────── 3200ms
-  └─ access-control-login  ────── 450ms
-  └─ esri-lookup  ─────────────── 1800ms   ← bottleneck found
-  └─ credit-score-submit  ─────── 320ms
-  └─ workflow-start  ──────────── 180ms
+Database timeout (500):
+```json
+{"level":"error","msg":"request_error","statusCode":500,"message":"Connection acquire timeout","stack":"Error: ...","trace_id":"abc..."}
 ```
 
-### Key rules
+## Structured metadata instead of string concatenation
 
-- **Always `@Span` external calls** — they're the most common source of latency
-- **Use `this.logger.error()` in catch blocks** — errors get trace context automatically
-- **Use structured metadata** — `{ upi, error: error.message }` not string concatenation
-- **Keep span names short and consistent** — `service-action` pattern (e.g., `esri-lookup`, `workflow-start`)
+```typescript
+// Bad — not searchable, not filterable
+this.logger.info(`Order ${orderId} created by user ${userId}`);
+
+// Good — searchable in Loki: {msg="order created"} | json | orderId="123"
+this.logger.info('order created', { orderId, userId });
+```
 
 ---
 
-## Distributed tracing across services (HTTP)
+# Part 4: Distributed tracing
 
-When Service A calls Service B via HTTP, trace context must be propagated so both services share the same `trace_id`. The SDK uses W3C `traceparent` headers for this.
+## HTTP trace propagation
+
+When Service A calls Service B via HTTP, trace context must be propagated so both services share the same `trace_id`.
 
 ### How it works
 
@@ -548,71 +349,9 @@ trace_id: "8cf631b00df8e35a403e57823ac58eee"
 service_name: "authentication-service"
 ```
 
-### Peer dependency
-
-Each service that participates in distributed tracing must have `@opentelemetry/api` installed:
-
-```bash
-npm install @opentelemetry/api
-```
-
-The SDK already includes it as a dependency, but if your service imports from `@opentelemetry/api` directly (for `propagation.inject`), it must be in your `package.json` too.
-
----
-
-## Microservice setup checklist
-
-Quick reference for adding observability to a new or existing NestJS service.
-
-### Required steps
-
-- [ ] Install SDK: `npm install @ivymurage-rw/observability`
-- [ ] Install OTel API: `npm install @opentelemetry/api`
-- [ ] **app.module.ts** — add `ObservabilityModule.forRoot({ ... })` and `ObservabilityHealthModule`
-- [ ] **main.ts** — add `setupProcessErrorHandlers()`, `bufferLogs: true`, and `app.useLogger(app.get(NestPinoLogger))`
-- [ ] Set `serviceName` consistently in both `app.module.ts` and `main.ts`
-- [ ] Set tracing exporter to `otlp-http` with your collector endpoint for non-local environments
-
-### For services that call other services (HTTP)
-
-- [ ] Add `propagation.inject(otelContext.active(), headers)` in your HTTP client's header builder
-- [ ] Import `{ propagation, context as otelContext } from '@opentelemetry/api'`
-
-### For services with database queries (Sequelize)
-
-- [ ] Add `sequelizeInstrumentation()` to instrumentations array
-- [ ] Wire `createSequelizeLogging(logger)` as Sequelize's `logging` option
-- [ ] Set `benchmark: true` in Sequelize config
-
-### Common mistakes
-
-| Mistake | Symptom | Fix |
-|---------|---------|-----|
-| `sampling: { ratio: 0.1 }` in dev | 90% of traces missing in Tempo | Remove sampling config for local dev |
-| `exporter: { type: 'console' }` | Traces print to stdout, not sent to collector | Change to `otlp-http` with endpoint |
-| Different `serviceName` in `main.ts` vs `app.module.ts` | Health logs show wrong service name | Use same name in both files |
-| Missing `propagation.inject()` in HTTP client | Each service generates its own `trace_id` | Add inject call (see distributed tracing section above) |
-| Missing `benchmark: true` in Sequelize | Query duration always `0` | Add `benchmark: true` to Sequelize config |
-
----
-
 ## Kafka context propagation
 
-Kafka messages are fire-and-forget — without trace propagation, the consumer has no idea which request triggered the message. The SDK bridges this gap by injecting/extracting W3C trace context in Kafka headers.
-
-### How it works
-
-```
-Producer (api-gateway)                    Consumer (notification-service)
-─────────────────────                     ──────────────────────────────
-HTTP request arrives                      Kafka message received
-  └─ trace_id: abc123                       └─ headers contain traceparent
-  └─ producer.send()                        └─ withKafkaContext() extracts it
-     └─ injectKafkaHeaders()                └─ trace_id: abc123 (same!)
-        └─ adds traceparent to headers      └─ child span created
-```
-
-In Tempo, you see the full chain: `HTTP request → kafka-produce → kafka-consume → process-event` all under one trace.
+Kafka messages are fire-and-forget — without trace propagation, the consumer has no idea which request triggered the message.
 
 ### Step 1: Add instrumentation (app.module.ts)
 
@@ -629,7 +368,7 @@ import {
       serviceName: 'api-gateway',
       instrumentations: [
         httpInstrumentation(),
-        kafkaInstrumentation(),  // Auto-instruments kafkajs produce/consume
+        kafkaInstrumentation(),
       ],
     }),
   ],
@@ -637,11 +376,9 @@ import {
 export class AppModule {}
 ```
 
-This auto-instruments `kafkajs` — every `producer.send()` and `consumer.run()` gets traced automatically with zero code changes.
+This auto-instruments `kafkajs` — every `producer.send()` and `consumer.run()` gets traced automatically.
 
 ### Step 2: Manual header injection (for custom producers)
-
-If you build Kafka messages manually or use a wrapper, inject headers explicitly:
 
 ```typescript
 import { injectKafkaHeaders, ObservabilityLogger } from '@ivymurage-rw/observability';
@@ -651,18 +388,12 @@ export class NotificationProducer {
   constructor(private logger: ObservabilityLogger) {}
 
   async sendLoanApprovalNotification(loanId: string, userId: string) {
-    const payload = { loanId, userId, type: 'LOAN_APPROVED' };
-
     await this.producer.send({
       topic: 'notifications',
       messages: [{
         key: userId,
-        value: JSON.stringify(payload),
-        // injectKafkaHeaders() reads the active trace context
-        // and adds traceparent + tracestate to headers
-        headers: injectKafkaHeaders({
-          'x-event-type': 'LOAN_APPROVED',
-        }),
+        value: JSON.stringify({ loanId, userId, type: 'LOAN_APPROVED' }),
+        headers: injectKafkaHeaders({ 'x-event-type': 'LOAN_APPROVED' }),
       }],
     });
 
@@ -683,21 +414,12 @@ export class NotificationConsumer {
   async onModuleInit() {
     await this.consumer.run({
       eachMessage: async ({ topic, partition, message }) => {
-        // withKafkaContext extracts the traceparent from message headers,
-        // creates a consumer span, and runs your handler inside that context.
-        // All logs inside the callback get the original trace_id.
         await withKafkaContext(
           message.headers,
           `process-${topic}`,
           async () => {
             const payload = JSON.parse(message.value.toString());
-
-            this.logger.info('Processing notification', {
-              topic,
-              partition,
-              eventType: payload.type,
-              userId: payload.userId,
-            });
+            this.logger.info('Processing notification', { topic, eventType: payload.type });
 
             switch (payload.type) {
               case 'LOAN_APPROVED':
@@ -729,16 +451,204 @@ HTTP POST /api/loans/apply  ─────────────────�
 
 All under one `trace_id`, across services, across Kafka.
 
-### Peer dependencies
+---
 
-```bash
-npm install kafkajs
-npm install @opentelemetry/instrumentation-kafkajs
+# Part 5: Custom spans and external API tracing
+
+## Custom spans
+
+The SDK auto-creates spans for HTTP requests and database queries. Custom spans let you trace **business logic** — the "why was this slow?" that framework-level instrumentation doesn't show.
+
+### When to add custom spans
+
+| Use case | Why | Example |
+|----------|-----|---------|
+| External API calls | Third-party latency is invisible without a span | Credit score API, payment gateway, SMS provider |
+| Multi-step business logic | A single handler that does several things | Loan approval: validate → score → decide → notify |
+| Background/async work | Jobs outside HTTP request context | Kafka consumers, cron tasks, queue workers |
+| Conditional branches | Different code paths with different performance | Cache hit vs DB lookup |
+
+### `@Span` decorator (recommended)
+
+```typescript
+import { Span, ObservabilityLogger } from '@ivymurage-rw/observability';
+
+@Injectable()
+export class LoanService {
+  constructor(private logger: ObservabilityLogger) {}
+
+  @Span('validate-loan-application')
+  async validateApplication(data: CreateLoanDto) {
+    return this.validator.check(data);
+  }
+
+  @Span('check-credit-score')
+  async getCreditScore(nationalId: string): Promise<number> {
+    const response = await this.httpService.get(`/api/credit/${nationalId}`);
+    return response.data.score;
+  }
+
+  @Span('process-loan-decision')
+  async processDecision(applicationId: string) {
+    const app = await this.findApplication(applicationId);
+    const score = await this.getCreditScore(app.nationalId);
+    if (score >= 700) {
+      await this.approve(applicationId);
+    } else {
+      await this.reject(applicationId, 'Low credit score');
+    }
+  }
+}
 ```
 
-Both are optional — the SDK skips Kafka instrumentation if they're not installed.
+### Manual spans with `ObservabilityTracer`
+
+Use when you need custom attributes on the span:
+
+```typescript
+import { ObservabilityTracer, ObservabilityLogger } from '@ivymurage-rw/observability';
+
+@Injectable()
+export class PaymentService {
+  constructor(private tracer: ObservabilityTracer, private logger: ObservabilityLogger) {}
+
+  async processPayment(orderId: string, amount: number) {
+    return this.tracer.startActiveSpan('process-payment', async (span) => {
+      span.setAttribute('order.id', orderId);
+      span.setAttribute('payment.amount', amount);
+
+      const result = await this.gateway.charge(orderId, amount);
+      span.setAttribute('payment.status', result.status);
+      return result;
+    });
+  }
+}
+```
+
+## External API observability
+
+Services that call external systems are the hardest to debug without observability. Add `@Span` + `ObservabilityLogger` to trace every external call.
+
+### Pattern
+
+1. Inject `ObservabilityLogger` in constructor
+2. Add `@Span('service-action')` to each external call method
+3. Use structured metadata in logs
+
+```typescript
+import { ObservabilityLogger, Span } from '@ivymurage-rw/observability';
+
+@Injectable()
+export class ExternalIntegrationService {
+  constructor(
+    private readonly axiosService: AxiosService,
+    private readonly logger: ObservabilityLogger,
+  ) {}
+
+  @Span('esri-lookup')
+  async getESRIInfo(upi: string) {
+    try {
+      this.logger.info('Fetching ESRI data', { upi });
+      const result = await this.axiosService.request('GET', `${url}/api/external/esri/upi`, ...);
+      this.logger.info('ESRI data received', { upi });
+      return result;
+    } catch (error) {
+      this.logger.error('ESRI lookup failed', { upi, error: error.message });
+      return null;
+    }
+  }
+}
+```
+
+### Recommended span names
+
+| Integration | Span name | Why trace it |
+|-------------|-----------|-------------|
+| Access control login | `access-control-login` | Auth token fetch, can timeout |
+| ESRI / GIS lookup | `esri-lookup` | External GIS service, 15s timeout |
+| Land center lookup | `land-center-lookup` | Government land registry |
+| Credit score submission | `credit-score-submit` | Cross-service, affects loan decisions |
+| iBank budget lookup | `ibank-budget-lookup` | Core banking integration |
+| Minecofin loan submit | `minecofin-loan-submit` | Government system, slow and flaky |
+| Workflow start/resume | `workflow-start`, `workflow-resume` | Workflow engine, multi-step |
+| Auth get departments | `auth-get-departments` | Cross-service lookup |
+
+### What you see in Tempo
+
+Without spans:
+```
+HTTP POST /api/loans/apply  ─────────────────────── 3200ms
+```
+
+With `@Span` on each external call:
+```
+HTTP POST /api/loans/apply  ─────────────────────── 3200ms
+  └─ access-control-login  ────── 450ms
+  └─ esri-lookup  ─────────────── 1800ms   ← bottleneck found
+  └─ credit-score-submit  ─────── 320ms
+  └─ workflow-start  ──────────── 180ms
+```
 
 ---
+
+# Part 6: Database observability (Sequelize)
+
+Structured logging and distributed tracing for all Sequelize queries — works with MSSQL (Tedious), PostgreSQL, MySQL, and SQLite.
+
+## 1. Add the instrumentation
+
+```typescript
+import {
+  ObservabilityModule,
+  sequelizeInstrumentation,
+  httpInstrumentation,
+} from '@ivymurage-rw/observability';
+
+@Module({
+  imports: [
+    ObservabilityModule.forRoot({
+      serviceName: 'my-service',
+      instrumentations: [
+        httpInstrumentation(),
+        sequelizeInstrumentation({ slowQueryThreshold: 500 }),
+      ],
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+## 2. Wire Sequelize logging
+
+```typescript
+import { ObservabilityLogger, createSequelizeLogging } from '@ivymurage-rw/observability';
+
+useFactory: (logger: ObservabilityLogger) => ({
+  dialect: 'mssql',
+  logging: createSequelizeLogging(logger, { slowQueryThreshold: 500 }),
+  benchmark: true,  // required — provides query timing
+}),
+inject: [ObservabilityLogger],
+```
+
+## What you get
+
+```json
+{"level":"debug","msg":"query executed","event":"db.query","db.operation":"SELECT","table":"users","duration_ms":12,"trace_id":"abc..."}
+{"level":"warn","msg":"slow query detected","event":"db.slow_query","db.operation":"SELECT","table":"bookings","duration_ms":3200}
+```
+
+## Configuration options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `slowQueryThreshold` | `500` | Milliseconds — queries slower than this trigger a warning |
+| `sanitizeQueries` | `true` | Replace literals with `?` in captured SQL |
+| `captureSqlText` | `false` | Include sanitized SQL in logs |
+
+---
+
+# Part 7: Migration guide
 
 ## Migrating from Winston / Morgan / custom loggers
 
@@ -751,48 +661,25 @@ Migration touches 3 files: `app.module.ts`, `main.ts`, and any service that inje
 import LoggerModule from './logger/logger.module';
 import MorganMiddleware from './middlewares/morgan.middleware';
 
-@Module({
-  imports: [LoggerModule.register('App'), ...],
-})
-class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(MorganMiddleware).forRoutes('*');
-  }
-}
-
 // After
 // import LoggerModule from './logger/logger.module';
 // import MorganMiddleware from './middlewares/morgan.middleware';
 import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@ivymurage-rw/observability';
-
-@Module({
-  imports: [
-    ObservabilityModule.forRoot({ serviceName: 'my-service', instrumentations: [httpInstrumentation()] }),
-    ObservabilityHealthModule,
-    // LoggerModule.register('App'),
-    ...
-  ],
-})
-class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    // consumer.apply(MorganMiddleware).forRoutes('*');
-  }
-}
 ```
 
-### 2. main.ts — swap the logger and add process error handling
+### 2. main.ts — swap logger, remove custom exception filter
 
 ```typescript
-// Before
-const app = await NestFactory.create(AppModule);
-
-// After
 import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage-rw/observability';
 
 setupProcessErrorHandlers({ serviceName: 'my-service' });
 
 const app = await NestFactory.create(AppModule, { bufferLogs: true });
 app.useLogger(app.get(NestPinoLogger));
+
+// REMOVE these lines:
+// import HttpExceptionFilter from './filters/http.exception.filter';
+// app.useGlobalFilters(new HttpExceptionFilter());
 ```
 
 ### 3. Services — replace logger injection
@@ -800,27 +687,13 @@ app.useLogger(app.get(NestPinoLogger));
 ```typescript
 // Before
 import LoggerService from './logger/logger.service';
-
-@Injectable()
-export class MyService {
-  constructor(private loggerService: LoggerService) {}
-
-  doWork() {
-    this.loggerService.handleInfoLog('doing work');
-  }
-}
+constructor(private loggerService: LoggerService) {}
+this.loggerService.handleInfoLog('doing work');
 
 // After
 import { ObservabilityLogger } from '@ivymurage-rw/observability';
-
-@Injectable()
-export class MyService {
-  constructor(private logger: ObservabilityLogger) {}
-
-  doWork() {
-    this.logger.info('doing work');
-  }
-}
+constructor(private logger: ObservabilityLogger) {}
+this.logger.info('doing work');
 ```
 
 ### Logger method mapping
@@ -831,84 +704,108 @@ export class MyService {
 | `logger.handleInfoLog(msg)` | `logger.info(msg)` |
 | `logger.handleErrorLog(msg)` | `logger.error(msg)` |
 | `logger.warn(msg)` | `logger.warn(msg)` |
-| `logger.debug(msg)` | `logger.debug(msg)` |
 | `console.log(msg)` | `logger.info(msg)` |
 
-### Structured context instead of string concatenation
+---
+
+# Part 8: Configuration reference
+
+## Full configuration
+
+All fields except `serviceName` are optional with sensible defaults.
 
 ```typescript
-// Before
-console.log(`Order ${orderId} created by user ${userId}`);
+ObservabilityModule.forRoot({
+  serviceName: 'my-service',        // required
+  environment: 'production',        // defaults to NODE_ENV
+  version: '1.2.3',                 // defaults to npm_package_version
 
-// After — searchable and filterable
-this.logger.info('order created', { orderId, userId });
+  logger: {
+    level: 'info',                  // debug | info | warn | error | fatal
+    prettyPrint: false,             // auto: true in dev, false in prod
+    redaction: {
+      paths: ['*.password', '*.ssn'],
+      censor: '[REDACTED]',
+    },
+  },
+
+  tracing: {
+    enabled: true,
+    exporter: {
+      type: 'otlp-http',           // otlp-http | otlp-grpc | console | none
+      endpoint: 'http://otel-collector:4318',
+    },
+    sampling: {
+      ratio: 0.1,                  // 10% in prod (auto: 100% in dev)
+    },
+  },
+
+  metrics: {
+    enabled: true,
+    prefix: 'myservice',           // metric name prefix
+    defaultMetrics: true,           // Node.js process metrics
+    labels: { team: 'platform' },
+  },
+
+  instrumentations: [ /* ... */ ],
+})
 ```
+
+### Local development tip
+
+```typescript
+tracing: {
+  exporter: { type: 'console' },  // traces print to terminal, no collector needed
+}
+```
+
+## Available instrumentations
+
+| Instrumentation | When to use | Optional dependency |
+|----------------|-------------|-------------------|
+| `httpInstrumentation()` | Always | built-in |
+| `kafkaInstrumentation()` | KafkaJS | `@opentelemetry/instrumentation-kafkajs` |
+| `redisInstrumentation()` | Redis/ioredis | `@opentelemetry/instrumentation-ioredis` |
+| `mysqlInstrumentation()` | MySQL | `@opentelemetry/instrumentation-mysql2` |
+| `pgInstrumentation()` | PostgreSQL | `@opentelemetry/instrumentation-pg` |
+| `sequelizeInstrumentation()` | Sequelize | `opentelemetry-instrumentation-sequelize` |
+
+## Microservice setup checklist
+
+### Required steps
+
+- [ ] Install SDK: `npm install @ivymurage-rw/observability`
+- [ ] **app.module.ts** — add `ObservabilityModule.forRoot({ ... })` and `ObservabilityHealthModule`
+- [ ] **main.ts** — add `setupProcessErrorHandlers()`, `bufferLogs: true`, `app.useLogger(app.get(NestPinoLogger))`
+- [ ] **main.ts** — remove `app.useGlobalFilters(new HttpExceptionFilter())`
+- [ ] Set tracing exporter to `otlp-http` with your collector endpoint
+
+### For services that call other services (HTTP)
+
+- [ ] Add `propagation.inject(otelContext.active(), headers)` in your HTTP client
+- [ ] Import `{ propagation, context as otelContext } from '@opentelemetry/api'`
+
+### For services with database queries (Sequelize)
+
+- [ ] Add `sequelizeInstrumentation()` to instrumentations array
+- [ ] Wire `createSequelizeLogging(logger)` as Sequelize's `logging` option
+- [ ] Set `benchmark: true` in Sequelize config
+
+### Common mistakes
+
+| Mistake | Symptom | Fix |
+|---------|---------|-----|
+| Custom `HttpExceptionFilter` in `main.ts` | Errors not logged by SDK | Remove `app.useGlobalFilters(...)` |
+| `try/catch` swallows exceptions | SDK filter never sees errors | Add `this.logCaughtError(error)` or `this.logger.warn(...)` in catch |
+| `sampling: { ratio: 0.1 }` in dev | 90% of traces missing | Remove sampling config for local dev |
+| `exporter: { type: 'console' }` | Traces not sent to collector | Change to `otlp-http` |
+| Different `serviceName` in `main.ts` vs `app.module.ts` | Wrong service name in logs | Use same name in both files |
 
 ---
 
-## Developer setup (GitHub Packages)
+# Part 9: Reference
 
-The SDK is published to GitHub Packages. To install it in your service:
-
-### 1. Create a GitHub personal access token
-
-You need a token with `read:packages` scope:
-
-1. Go to **GitHub > Settings > Developer settings > Personal access tokens > Tokens (classic)**
-2. Generate a new token with the `read:packages` scope
-3. Copy the token
-
-### 2. Add `.npmrc` to your service
-
-Create a `.npmrc` file in your service root (next to `package.json`):
-
-```
-@ivymurage-rw:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
-```
-
-### 3. Set the token
-
-Add `GITHUB_TOKEN` to your environment. Choose one:
-
-**Option A — shell export (quick)**
-```bash
-export GITHUB_TOKEN=ghp_your_token_here
-```
-
-**Option B — project `.env` file**
-```bash
-# .env (git-ignored)
-GITHUB_TOKEN=ghp_your_token_here
-```
-
-**Option C — global `~/.npmrc` (set once, works everywhere)**
-```
-//npm.pkg.github.com/:_authToken=ghp_your_token_here
-```
-
-### 4. Install
-
-```bash
-npm install @ivymurage-rw/observability
-```
-
-### 5. CI/CD
-
-In your CI pipeline, set `GITHUB_TOKEN` as a secret:
-
-```yaml
-# GitHub Actions example
-- run: npm install
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-> **Note:** The built-in `GITHUB_TOKEN` in GitHub Actions already has `read:packages` for packages in the same org. No extra secrets needed.
-
----
-
-## Exports reference
+## Exports
 
 | Export | Type | Purpose |
 |--------|------|---------|
@@ -938,11 +835,45 @@ In your CI pipeline, set `GITHUB_TOKEN` as a secret:
 | `setupTracing` | Function | Early tracing init (before NestJS bootstrap) |
 | `sanitizeHeaders` | Function | Redact sensitive header values |
 
----
+## Developer setup (GitHub Packages)
+
+### 1. Create a GitHub personal access token
+
+Go to **GitHub > Settings > Developer settings > Personal access tokens > Tokens (classic)** and generate a token with the `read:packages` scope.
+
+### 2. Add `.npmrc` to your service
+
+```
+@ivymurage-rw:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+### 3. Set the token
+
+```bash
+# Option A: shell export
+export GITHUB_TOKEN=ghp_your_token_here
+
+# Option B: global ~/.npmrc (set once)
+//npm.pkg.github.com/:_authToken=ghp_your_token_here
+```
+
+### 4. Install
+
+```bash
+npm install @ivymurage-rw/observability
+```
+
+### 5. CI/CD
+
+```yaml
+# GitHub Actions — built-in GITHUB_TOKEN already has read:packages
+- run: npm install
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
 
 ## Local development sandbox
-
-For a full observability stack (Grafana, Prometheus, Loki, Tempo):
 
 ```bash
 pnpm sandbox:up    # start
