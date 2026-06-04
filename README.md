@@ -72,40 +72,6 @@ app.useLogger(app.get(NestPinoLogger));
 
 ## Architecture
 
-```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  api-gateway │───▶│ auth-service │    │ app-service  │
-│    :7070     │    │    :9001     │    │    :9004     │
-└──────┬───────┘    └──────┬───────┘    └──────┬───────┘
-       │                   │                   │
-       │    W3C traceparent propagation        │
-       │                   │                   │
-       ▼                   ▼                   ▼
-┌─────────────────────────────────────────────────────┐
-│              OpenTelemetry Collector :4318           │
-│              (receives traces via OTLP)              │
-└──────┬──────────────────────┬───────────────────────┘
-       │                      │
-       ▼                      ▼
-┌──────────────┐       ┌──────────────┐
-│    Tempo     │       │  Prometheus  │
-│   (traces)   │       │  (metrics)   │
-│    :3200     │       │    :9090     │
-└──────┬───────┘       └──────┬───────┘
-       │                      │
-       ▼                      ▼
-┌─────────────────────────────────────────┐
-│              Grafana :3000              │
-│  Dashboards: RED, Runtime, Logs+Traces  │
-└─────────────────────────────────────────┘
-       ▲
-       │
-┌──────┴───────┐       ┌──────────────┐
-│     Loki     │◀──────│   Promtail   │
-│    (logs)    │       │ (log shipper)│
-│    :3100     │       └──────────────┘
-└──────────────┘
-```
 <img width="1536" height="1024" alt="ChatGPT Image Jun 4, 2026, 12_59_03 PM" src="https://github.com/user-attachments/assets/58945a58-7781-4b79-9f89-7d2900d38ce7" />
 
 
