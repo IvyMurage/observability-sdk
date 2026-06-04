@@ -22,6 +22,10 @@ export function createRequestContext(
   const span = trace.getActiveSpan();
   const spanCtx = span?.spanContext();
 
+  const defined = overrides
+    ? Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined))
+    : {};
+
   return {
     requestId: overrides?.requestId || randomUUID(),
     correlationId: overrides?.correlationId || overrides?.requestId || randomUUID(),
@@ -30,7 +34,7 @@ export function createRequestContext(
     serviceName,
     environment,
     version,
-    ...overrides,
+    ...defined,
   };
 }
 
