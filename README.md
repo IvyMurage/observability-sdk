@@ -195,6 +195,7 @@ Structured logging and distributed tracing for all Sequelize queries — works w
 ### 1. Add the instrumentation
 
 ```typescript
+// app.module.ts 
 import { sequelizeInstrumentation, httpInstrumentation } from '@ivymurage-rw/observability';
 
 ObservabilityModule.forRoot({
@@ -209,6 +210,7 @@ ObservabilityModule.forRoot({
 ### 2. Wire Sequelize logging
 
 ```typescript
+// mostly in the database module file
 import { ObservabilityLogger, createSequelizeLogging } from '@ivymurage-rw/observability';
 
 // In your Sequelize config:
