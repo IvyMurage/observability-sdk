@@ -6,14 +6,16 @@ import {
   collectDefaultMetrics,
   register as globalRegister,
 } from 'prom-client';
+import type { RegistryContentType } from 'prom-client';
 import type { ResolvedConfig } from '../core/types';
 
 export class ObservabilityMetrics {
-  private registry: Registry;
+  private registry: Registry<RegistryContentType>;
   private prefix: string;
 
   constructor(config: ResolvedConfig) {
-    this.registry = new Registry();
+    this.registry = new Registry<RegistryContentType>();
+    this.registry.setContentType(Registry.OPENMETRICS_CONTENT_TYPE);
     this.prefix = config.metrics.prefix ? `${config.metrics.prefix}_` : '';
 
     this.registry.setDefaultLabels(config.metrics.labels);
@@ -66,7 +68,7 @@ export class ObservabilityMetrics {
     return this.registry.contentType;
   }
 
-  getRegistry(): Registry {
+  getRegistry(): Registry<RegistryContentType> {
     return this.registry;
   }
 }

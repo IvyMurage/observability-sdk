@@ -10,7 +10,7 @@ export class MetricsController {
   @Get('metrics')
   async getMetrics(@Req() req: any, @Res() res: any): Promise<void> {
     const accept: string = req.headers['accept'] || '';
-    const registry = this.metrics.getRegistry() as Registry<any>;
+    const registry = this.metrics.getRegistry();
 
     if (accept.includes('application/openmetrics-text')) {
       registry.setContentType(Registry.OPENMETRICS_CONTENT_TYPE);
