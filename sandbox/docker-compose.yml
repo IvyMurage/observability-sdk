@@ -12,6 +12,26 @@ services:
       - tempo
       - loki
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    depends_on:
+      - teams-forwarder
+
+  teams-forwarder:
+    image: quay.io/prometheusmsteams/prometheus-msteams:v1.5.2
+    volumes:
+      - ./teams-forwarder.yml:/etc/config.yml:ro
+    ports:
+      - "8089:2000"
+    command:
+      - '-config-file=/etc/config.yml'
+
   prometheus:
     image: prom/prometheus:v2.52.0
     volumes:
@@ -21,6 +41,8 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--enable-feature=exemplar-storage'
+    depends_on:
+      - alertmanager
 
   loki:
     image: grafana/loki:2.9.6
