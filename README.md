@@ -134,15 +134,18 @@ All three signals (metrics, logs, traces) are linked bidirectionally in Grafana:
 
 Alerts are sent to Microsoft Teams via incoming webhook.
 
-### Piping service logs to Loki
+### Piping service logs to Loki 
 
-Promtail watches `/tmp/observability-logs/*.log`. Start services with:
+Promtail watches `/tmp/observability-logs/*.log` (Locally). Start services with:
 
 ```bash
 NODE_ENV=production npm start 2>&1 | tee /tmp/observability-logs/my-service.log
 ```
+If your services run in Docker containers Grafana's Loki Docker logging drivers sends container stdout directly to loki - no files needed
 
-## Integrated services
+If your running your services using pm2, it will write files stdout/stderr at ```.pm2/logs```. 
+
+## Integrated services (Used as a test basis)
 
 | Service | Port | Status |
 |---------|------|--------|
