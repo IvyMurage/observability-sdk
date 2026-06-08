@@ -4,8 +4,13 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
+    uid: prometheus
     url: http://localhost:9090
     isDefault: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
 
   - name: Loki
     type: loki
@@ -34,5 +39,16 @@ datasources:
         mappedTags:
           - key: service.name
             value: service_name
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        queries:
+          - name: Request rate
+            query: 'sum(rate({__name__=~".+_http_requests_total"}[$__rate_interval]))'
+          - name: Error rate
+            query: 'sum(rate({__name__=~".+_http_requests_total", status_code=~"5.."}[$__rate_interval]))'
+          - name: Duration p95
+            query: 'histogram_quantile(0.95, sum(rate({__name__=~".+_http_request_duration_seconds_bucket"}[$__rate_interval])) by (le))'
       serviceMap:
         datasourceUid: prometheus

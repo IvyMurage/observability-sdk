@@ -1,6 +1,14 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  scrape_protocols:
+    - OpenMetricsText1.0.0
+    - OpenMetricsText0.0.1
+    - PrometheusProto
+    - PrometheusText0.0.4
+
+rule_files:
+  - /etc/prometheus/alerts.yml
 
 scrape_configs:
   - job_name: "otel-collector"
@@ -21,3 +29,9 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["localhost:9004"]
+
+
+  - job_name: "access-management-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:9000"]

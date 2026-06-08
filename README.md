@@ -33,6 +33,7 @@ Observability SDK and infrastructure for BRD NestJS microservices. One package g
 | Database tracing | Sequelize query logging with slow query alerts | One config line |
 | Kafka tracing | Trace context across Kafka produce/consume | `kafkaInstrumentation()` |
 | Sensitive data redaction | Passwords, tokens, keys auto-censored | Zero — automatic |
+| Metric exemplars | Histogram observations carry `trace_id` — click a latency spike to see the trace | Zero — automatic |
 
 ## Quick start
 
@@ -98,6 +99,40 @@ docker compose up -d
 | **Service Overview (RED)** | Request rate, error rate, response time percentiles, status codes, slowest routes |
 | **Node.js Runtime** | Heap memory, CPU usage, event loop lag, GC duration, active handles |
 | **Logs & Traces** | Log volume by level, warnings/errors, recent traces, all logs |
+
+### Signal correlation
+
+All three signals (metrics, logs, traces) are linked bidirectionally in Grafana:
+
+| From | To | How |
+|------|----|-----|
+| **Metrics → Traces** | Click exemplar dot on a graph | Histogram carries `trace_id` as exemplar label |
+| **Traces → Logs** | "Logs for this trace" button in Tempo | Loki query filtered by `trace_id` |
+| **Logs → Traces** | Click `trace_id` in a log line | Derived field links to Tempo |
+| **Traces → Metrics** | "Request rate" / "Error rate" / "p95" links | Tempo trace-to-metrics queries |
+
+### Alerting
+
+**Prometheus alerts** (metrics-based) — evaluated every 15s:
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| ServiceDown | `up == 0` for 1min | critical |
+| HighErrorRate | 5xx > 5% for 5min | critical |
+| HighLatencyP95 | p95 > 2s for 5min | warning |
+| HighLatencyP99 | p99 > 5s for 5min | critical |
+| HighMemoryUsage | heap > 85% for 10min | warning |
+| HighEventLoopLag | lag > 500ms for 5min | warning |
+
+**Grafana alerts** (log-based) — evaluated every 1min:
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| Error Log Spike | error rate > 0.5/sec for 5min | warning |
+| Auth Failure Spike | auth failures > 1/sec for 5min | warning |
+| Service Stopped Logging | no logs for 10min | critical |
+
+Alerts are sent to Microsoft Teams via incoming webhook.
 
 ### Piping service logs to Loki
 

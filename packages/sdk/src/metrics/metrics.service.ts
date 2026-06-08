@@ -37,6 +37,7 @@ export class ObservabilityMetrics {
     help: string,
     labelNames: string[] = [],
     buckets?: number[],
+    enableExemplars = false,
   ): Histogram {
     return new Histogram({
       name: `${this.prefix}${name}`,
@@ -44,6 +45,7 @@ export class ObservabilityMetrics {
       labelNames,
       buckets: buckets || [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
       registers: [this.registry],
+      enableExemplars,
     });
   }
 

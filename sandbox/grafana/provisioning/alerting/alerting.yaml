@@ -1,0 +1,153 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: microsoft-teams
+    receivers:
+      - uid: teams-webhook
+        type: teams
+        settings:
+          url: https://brdrw.webhook.office.com/webhookb2/b76b40c6-cfd3-40da-89d6-5b67e6428d9f@bcac095a-e512-44af-be80-2cf069eccd2c/IncomingWebhook/ddf73f99eb3c4d5a9825aa1bbeeb2e45/1b8b27f4-a2c9-436e-a5f6-afc9cdd93fb9/V2cWbZFyBM9zNF_HO7nxvZ1mdqFq2soagSW4CmbpDuhsY1
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: microsoft-teams
+    group_by:
+      - grafana_folder
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: Log Alerts
+    folder: Observability
+    interval: 1m
+    rules:
+      - uid: error-log-spike
+        title: Error Log Spike
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'sum(rate({level="error"} |= "" [5m]))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0.5
+              refId: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Error log rate exceeds 0.5/sec across services
+
+      - uid: auth-failure-spike
+        title: Authentication Failure Spike
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'sum(rate({level="warn"} |~ "authentication_failed" [5m]))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 1
+              refId: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Authentication failures exceed 1/sec — possible brute force
+
+      - uid: no-logs-from-service
+        title: Service Stopped Logging
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({service_name=~".+"} [10m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params:
+                      - 1
+              refId: C
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: No logs received from any service for 10 minutes

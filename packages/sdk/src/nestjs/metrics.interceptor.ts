@@ -9,6 +9,7 @@ import { Observable, tap } from 'rxjs';
 import type { Counter, Histogram } from 'prom-client';
 import { OBSERVABILITY_METRICS } from '../core/constants';
 import type { ObservabilityMetrics } from '../metrics/metrics.service';
+import { getContext } from '../core/context';
 
 @Injectable()
 export class MetricsInterceptor implements NestInterceptor {
@@ -27,6 +28,7 @@ export class MetricsInterceptor implements NestInterceptor {
       'HTTP request duration in seconds',
       ['method', 'route', 'status_code'],
       [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+      true,
     );
   }
 
@@ -44,14 +46,26 @@ export class MetricsInterceptor implements NestInterceptor {
           const res = context.switchToHttp().getResponse();
           const statusCode = String(res.statusCode);
           const duration = (performance.now() - start) / 1000;
-          this.httpRequestsTotal.inc({ method, route, status_code: statusCode });
-          this.httpRequestDuration.observe({ method, route, status_code: statusCode }, duration);
+          const labels = { method, route, status_code: statusCode };
+          const traceId = getContext()?.traceId;
+          this.httpRequestsTotal.inc(labels);
+          this.httpRequestDuration.observe({
+            labels,
+            value: duration,
+            exemplarLabels: traceId ? { trace_id: traceId } : undefined,
+          });
         },
         error: (err: Error & { status?: number }) => {
           const statusCode = String(err.status || 500);
           const duration = (performance.now() - start) / 1000;
-          this.httpRequestsTotal.inc({ method, route, status_code: statusCode });
-          this.httpRequestDuration.observe({ method, route, status_code: statusCode }, duration);
+          const labels = { method, route, status_code: statusCode };
+          const traceId = getContext()?.traceId;
+          this.httpRequestsTotal.inc(labels);
+          this.httpRequestDuration.observe({
+            labels,
+            value: duration,
+            exemplarLabels: traceId ? { trace_id: traceId } : undefined,
+          });
         },
       }),
     );

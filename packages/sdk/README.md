@@ -13,6 +13,7 @@ Structured logging, distributed tracing, and Prometheus metrics for NestJS servi
 | Sensitive data redaction | Passwords, tokens, keys auto-censored | automatic |
 | Request context | Request ID, correlation ID via AsyncLocalStorage | automatic |
 | Error classification | Smart extraction with log levels (4xx=warn, 5xx=error) | automatic |
+| Metric exemplars | Histogram observations carry `trace_id` for metrics→traces correlation | automatic |
 
 Every log line automatically includes `trace_id`, `request_id`, `correlation_id`, and `span_id`.
 
@@ -175,6 +176,16 @@ Example log output for a validation error:
 Every request records:
 - `http_requests_total` — Counter with `method`, `route`, `status_code` labels
 - `http_request_duration_seconds` — Histogram with p50/p95/p99 percentiles
+
+### Exemplars (metrics → traces correlation)
+
+The histogram automatically attaches the current `trace_id` as an **exemplar** on every observation. In Grafana, this shows as clickable dots on metric graphs — click one to jump directly to the trace that caused a latency spike or error.
+
+Requires:
+- Prometheus with `--enable-feature=exemplar-storage` (already configured in sandbox)
+- Grafana Prometheus datasource with exemplar-to-Tempo link (already provisioned)
+
+No code changes needed in your service — the SDK handles it.
 
 ## Auto trace context
 
@@ -872,6 +883,27 @@ npm install @ivymurage-rw/observability
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+## Signal correlation (metrics ↔ logs ↔ traces)
+
+The SDK and sandbox Grafana datasources are pre-configured so all three signals link together:
+
+```
+         exemplars (trace_id on metric points)
+Metrics ─────────────────────────────────────→ Traces
+                                                  │
+   Derived field (trace_id regex → Tempo link)    │
+Logs ←────────────────────────────────────────────┘
+  ↑          Trace-to-logs query
+  └──────────────────────────────────────── Traces
+```
+
+- **Dashboard graph** → click exemplar dot → **exact trace** in Tempo
+- **Trace view** → "Logs for this trace" → **all log lines** for that request
+- **Log line** → click `trace_id` → **full trace** in Tempo
+- **Trace view** → "Request rate" / "Error rate" → **metrics** at that timestamp
+
+No code changes needed — the SDK attaches `trace_id` exemplars automatically.
 
 ## Local development sandbox
 
