@@ -29,6 +29,7 @@ groups:
       - uid: error-log-spike
         title: Error Log Spike
         condition: C
+        noDataState: OK
         data:
           - refId: A
             relativeTimeRange:
@@ -71,6 +72,7 @@ groups:
       - uid: auth-failure-spike
         title: Authentication Failure Spike
         condition: C
+        noDataState: OK
         data:
           - refId: A
             relativeTimeRange:
@@ -113,6 +115,7 @@ groups:
       - uid: no-logs-from-service
         title: Service Stopped Logging
         condition: C
+        noDataState: OK
         data:
           - refId: A
             relativeTimeRange:
