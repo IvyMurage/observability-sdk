@@ -20,6 +20,7 @@ services:
       - "9093:9093"
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--web.external-url=http://localhost:9093'
     depends_on:
       - teams-forwarder
 
@@ -27,10 +28,12 @@ services:
     image: quay.io/prometheusmsteams/prometheus-msteams:v1.5.2
     volumes:
       - ./teams-forwarder.yml:/etc/config.yml:ro
+      - ./teams-card.tmpl:/etc/templates/teams-card.tmpl:ro
     ports:
       - "8089:2000"
     command:
       - '-config-file=/etc/config.yml'
+      - '-template-file=/etc/templates/teams-card.tmpl'
 
   prometheus:
     image: prom/prometheus:v2.52.0

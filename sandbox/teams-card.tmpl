@@ -1,0 +1,57 @@
+{{ define "teams.card" }}
+{
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "{{- if eq .Status "firing" -}}FF0000{{- else -}}00FF00{{- end -}}",
+  "summary": "{{ .Status | title }}: {{ .CommonLabels.alertname }}",
+  "sections": [
+    {
+      "activityTitle": "{{ .Status | title }}: {{ .CommonLabels.alertname }}",
+      "facts": [
+        {{- $first := true -}}
+        {{- range .Alerts -}}
+        {{- if not $first -}},{{- end -}}
+        {{- $first = false -}}
+        {
+          "name": "{{ .Labels.job }}{{ if .Labels.instance }} ({{ .Labels.instance }}){{ end }}",
+          "value": "{{ .Annotations.summary }}"
+        }
+        {{- end -}}
+      ],
+      "markdown": true
+    }
+  ],
+  "potentialAction": [
+    {
+      "@type": "OpenUri",
+      "name": "Service Dashboard",
+      "targets": [
+        {
+          "os": "default",
+          "uri": "http://localhost:3000/d/service-overview-red"
+        }
+      ]
+    },
+    {
+      "@type": "OpenUri",
+      "name": "Runtime Dashboard",
+      "targets": [
+        {
+          "os": "default",
+          "uri": "http://localhost:3000/d/nodejs-runtime"
+        }
+      ]
+    },
+    {
+      "@type": "OpenUri",
+      "name": "Alert Rules",
+      "targets": [
+        {
+          "os": "default",
+          "uri": "http://localhost:3000/alerting/list"
+        }
+      ]
+    }
+  ]
+}
+{{ end }}

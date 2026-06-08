@@ -11,5 +11,5 @@ route:
 receivers:
   - name: microsoft-teams
     webhook_configs:
-      - url: 'http://teams-forwarder:8089/alertmanager'
+      - url: 'http://teams-forwarder:2000/alertmanager'
         send_resolved: true
