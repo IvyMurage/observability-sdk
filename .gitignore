@@ -1,0 +1,30 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+coverage/
+.env
+.env.*
+!.env.example
+
+# Docs (internal)
+docs/
+
+# Claude Code
+.claude/
+
+# Secrets / keys
+*.pem
+*.key
+*.p12
+credentials*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

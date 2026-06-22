@@ -1,0 +1,82 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    command: ["--config", "/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics
+    depends_on:
+      - tempo
+      - loki
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--web.external-url=http://localhost:9093'
+    depends_on:
+      - teams-forwarder
+
+  teams-forwarder:
+    image: quay.io/prometheusmsteams/prometheus-msteams:v1.5.2
+    volumes:
+      - ./teams-forwarder.yml:/etc/config.yml:ro
+      - ./teams-card.tmpl:/etc/templates/teams-card.tmpl:ro
+    ports:
+      - "8089:2000"
+    command:
+      - '-config-file=/etc/config.yml'
+      - '-template-file=/etc/templates/teams-card.tmpl'
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+    network_mode: host
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--enable-feature=exemplar-storage'
+    depends_on:
+      - alertmanager
+
+  loki:
+    image: grafana/loki:2.9.6
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "9095:9095"   # Tempo gRPC
+
+  promtail:
+    image: grafana/promtail:2.9.6
+    volumes:
+      - ./promtail/config.yaml:/etc/promtail/config.yaml:ro
+      - /tmp/observability-logs:/var/log/services:ro
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    network_mode: host
