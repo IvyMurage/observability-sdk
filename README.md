@@ -2,6 +2,22 @@
 
 Observability SDK and infrastructure for BRD NestJS microservices. One package gives every service structured logging, distributed tracing, Prometheus metrics, and health checks.
 
+## Table of Contents
+
+- [Repository structure](#repository-structure)
+- [What the SDK provides](#what-the-sdk-provides)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Sandbox (local observability stack)](#sandbox-local-observability-stack)
+  - [Pre-built Grafana dashboards](#pre-built-grafana-dashboards)
+  - [Signal correlation](#signal-correlation)
+  - [Alerting](#alerting)
+  - [Piping service logs to Loki](#piping-service-logs-to-loki)
+- [Integrated services](#integrated-services-used-as-a-test-basis)
+- [Installation](#installation)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+
 ## Repository structure
 
 ```

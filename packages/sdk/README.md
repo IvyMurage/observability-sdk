@@ -2,6 +2,46 @@
 
 Structured logging, distributed tracing, and Prometheus metrics for NestJS services. Drop-in module — takes about 10 minutes to integrate.
 
+## Table of Contents
+
+- [What you get](#what-you-get)
+- **Part 1: Setup**
+  - [1. Install](#1-install)
+  - [2. Wire the module](#2-wire-the-module)
+  - [3. Use in your services](#3-use-in-your-services)
+  - [4. Verify](#4-verify)
+- **Part 2: What the SDK does automatically**
+  - [Auto request logging](#auto-request-logging)
+  - [Auto error classification](#auto-error-classification)
+  - [Auto HTTP metrics](#auto-http-metrics)
+  - [Auto trace context](#auto-trace-context)
+- **Part 3: Adding business logic logging**
+  - [When to add manual logging](#when-to-add-manual-logging)
+  - [Logging errors in catch blocks](#logging-errors-in-catch-blocks)
+  - [Structured metadata instead of string concatenation](#structured-metadata-instead-of-string-concatenation)
+- **Part 4: Distributed tracing**
+  - [HTTP trace propagation](#http-trace-propagation)
+  - [Kafka context propagation](#kafka-context-propagation)
+- **Part 5: Custom spans and external API tracing**
+  - [Custom spans](#custom-spans)
+  - [External API observability](#external-api-observability)
+- **Part 6: Database observability (Sequelize)**
+  - [Add the instrumentation](#1-add-the-instrumentation)
+  - [Wire Sequelize logging](#2-wire-sequelize-logging)
+  - [Configuration options](#configuration-options)
+- **Part 7: Migration guide**
+  - [Migrating from Winston / Morgan / custom loggers](#migrating-from-winston--morgan--custom-loggers)
+- **Part 8: Configuration reference**
+  - [Full configuration](#full-configuration)
+  - [Available instrumentations](#available-instrumentations)
+  - [Microservice setup checklist](#microservice-setup-checklist)
+- **Part 9: Reference**
+  - [Exports](#exports)
+  - [Installation](#installation)
+  - [Standalone mode (pure Node.js / Express / Fastify)](#standalone-mode-pure-nodejs--express--fastify)
+  - [Signal correlation](#signal-correlation-metrics--logs--traces)
+  - [Local development sandbox](#local-development-sandbox)
+
 ## What you get
 
 | Feature | How | Endpoint |
