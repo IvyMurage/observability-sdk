@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ObservabilityLogger, Span } from '@company/observability';
+import { ObservabilityLogger, Span } from '@brdrwanda/observability';
 
 @Injectable()
 export class AppService {
