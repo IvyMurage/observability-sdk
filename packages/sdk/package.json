@@ -1,11 +1,10 @@
 {
-  "name": "@brd-rw/observability",
+  "name": "@brdrwanda/observability",
   "version": "1.0.0",
   "description": "Internal observability platform SDK for NestJS distributed services",
   "repository": {
     "type": "git",
-    "url": "https://github.com/brd-rw/internal-observability-platform.git",
-    "directory": "packages/sdk"
+    "url": "https://github.com/brdbank/observability-sdk.git"
   },
   "publishConfig": {
     "access": "public",
