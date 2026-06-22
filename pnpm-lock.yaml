@@ -14,7 +14,7 @@ importers:
 
   examples/basic-nestjs:
     dependencies:
-      '@company/observability':
+      '@brdrwanda/observability':
         specifier: workspace:*
         version: link:../../packages/sdk
       '@nestjs/common':
