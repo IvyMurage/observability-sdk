@@ -5,7 +5,7 @@ Observability SDK and infrastructure for BRD NestJS microservices. One package g
 ## Repository structure
 
 ```
-├── packages/sdk/          # @brd-rw/observability npm package
+├── packages/sdk/          # @brdrwanda/observability npm package
 │   ├── src/               # SDK source code
 │   ├── README.md          # Full developer guide (setup, configuration, examples)
 │   └── package.json
@@ -38,12 +38,12 @@ Observability SDK and infrastructure for BRD NestJS microservices. One package g
 ## Quick start
 
 ```bash
-npm install @brd-rw/observability
+npm install @brdrwanda/observability
 ```
 
 ```typescript
 // app.module.ts
-import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@brd-rw/observability';
+import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@brdrwanda/observability';
 
 @Module({
   imports: [
@@ -60,7 +60,7 @@ export class AppModule {}
 
 ```typescript
 // main.ts
-import { setupProcessErrorHandlers, NestPinoLogger } from '@brd-rw/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@brdrwanda/observability';
 
 setupProcessErrorHandlers({ serviceName: 'my-service' });
 
@@ -156,10 +156,10 @@ If your running your services using pm2, it will write files stdout/stderr at ``
 
 ## Installation
 
-Published on npm under the `@brd-rw` org. No token or `.npmrc` needed.
+Published on npm under the `@brdrwanda` org. No token or `.npmrc` needed.
 
 ```bash
-npm install @brd-rw/observability
+npm install @brdrwanda/observability
 ```
 
 ## Documentation
