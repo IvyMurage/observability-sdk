@@ -1,4 +1,4 @@
-# @ivymurage-rw/observability
+# @brd-rw/observability
 
 Structured logging, distributed tracing, and Prometheus metrics for NestJS services. Drop-in module — takes about 10 minutes to integrate.
 
@@ -24,7 +24,7 @@ Every log line automatically includes `trace_id`, `request_id`, `correlation_id`
 ## 1. Install
 
 ```bash
-npm install @ivymurage-rw/observability
+npm install @brd-rw/observability
 
 # Pretty logs for local development (recommended)
 npm install -D pino-pretty
@@ -43,7 +43,7 @@ import {
   httpInstrumentation,
   kafkaInstrumentation,
   redisInstrumentation,
-} from '@ivymurage-rw/observability';
+} from '@brd-rw/observability';
 
 @Module({
   imports: [
@@ -66,7 +66,7 @@ export class AppModule {}
 
 ```typescript
 import { NestFactory } from '@nestjs/core';
-import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage-rw/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@brd-rw/observability';
 import { AppModule } from './app.module';
 
 setupProcessErrorHandlers({ serviceName: 'your-service-name' });
@@ -92,7 +92,7 @@ Inject `ObservabilityLogger` anywhere — it's globally available, no extra prov
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { ObservabilityLogger } from '@ivymurage-rw/observability';
+import { ObservabilityLogger } from '@brd-rw/observability';
 
 @Injectable()
 export class PaymentService {
@@ -213,7 +213,7 @@ Many controllers use `try/catch` with `ResponseCommon.handleError()`. The SDK's 
 ### Option A: Inline (simple, for a few catch blocks)
 
 ```typescript
-import { ObservabilityLogger } from '@ivymurage-rw/observability';
+import { ObservabilityLogger } from '@brd-rw/observability';
 
 @Controller('api/users')
 export class UsersController {
@@ -241,7 +241,7 @@ export class UsersController {
 ### Option B: Helper method (recommended for controllers with many catch blocks)
 
 ```typescript
-import { ObservabilityLogger } from '@ivymurage-rw/observability';
+import { ObservabilityLogger } from '@brd-rw/observability';
 
 @Controller('api/users')
 export class UsersController {
@@ -371,7 +371,7 @@ import {
   ObservabilityModule,
   httpInstrumentation,
   kafkaInstrumentation,
-} from '@ivymurage-rw/observability';
+} from '@brd-rw/observability';
 
 @Module({
   imports: [
@@ -392,7 +392,7 @@ This auto-instruments `kafkajs` — every `producer.send()` and `consumer.run()`
 ### Step 2: Manual header injection (for custom producers)
 
 ```typescript
-import { injectKafkaHeaders, ObservabilityLogger } from '@ivymurage-rw/observability';
+import { injectKafkaHeaders, ObservabilityLogger } from '@brd-rw/observability';
 
 @Injectable()
 export class NotificationProducer {
@@ -416,7 +416,7 @@ export class NotificationProducer {
 ### Step 3: Consumer — extract context and continue the trace
 
 ```typescript
-import { withKafkaContext, ObservabilityLogger } from '@ivymurage-rw/observability';
+import { withKafkaContext, ObservabilityLogger } from '@brd-rw/observability';
 
 @Injectable()
 export class NotificationConsumer {
@@ -482,7 +482,7 @@ The SDK auto-creates spans for HTTP requests and database queries. Custom spans 
 ### `@Span` decorator (recommended)
 
 ```typescript
-import { Span, ObservabilityLogger } from '@ivymurage-rw/observability';
+import { Span, ObservabilityLogger } from '@brd-rw/observability';
 
 @Injectable()
 export class LoanService {
@@ -517,7 +517,7 @@ export class LoanService {
 Use when you need custom attributes on the span:
 
 ```typescript
-import { ObservabilityTracer, ObservabilityLogger } from '@ivymurage-rw/observability';
+import { ObservabilityTracer, ObservabilityLogger } from '@brd-rw/observability';
 
 @Injectable()
 export class PaymentService {
@@ -547,7 +547,7 @@ Services that call external systems are the hardest to debug without observabili
 3. Use structured metadata in logs
 
 ```typescript
-import { ObservabilityLogger, Span } from '@ivymurage-rw/observability';
+import { ObservabilityLogger, Span } from '@brd-rw/observability';
 
 @Injectable()
 export class ExternalIntegrationService {
@@ -613,7 +613,7 @@ import {
   ObservabilityModule,
   sequelizeInstrumentation,
   httpInstrumentation,
-} from '@ivymurage-rw/observability';
+} from '@brd-rw/observability';
 
 @Module({
   imports: [
@@ -632,7 +632,7 @@ export class AppModule {}
 ## 2. Wire Sequelize logging
 
 ```typescript
-import { ObservabilityLogger, createSequelizeLogging } from '@ivymurage-rw/observability';
+import { ObservabilityLogger, createSequelizeLogging } from '@brd-rw/observability';
 
 useFactory: (logger: ObservabilityLogger) => ({
   dialect: 'mssql',
@@ -675,13 +675,13 @@ import MorganMiddleware from './middlewares/morgan.middleware';
 // After
 // import LoggerModule from './logger/logger.module';
 // import MorganMiddleware from './middlewares/morgan.middleware';
-import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@ivymurage-rw/observability';
+import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@brd-rw/observability';
 ```
 
 ### 2. main.ts — swap logger, remove custom exception filter
 
 ```typescript
-import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage-rw/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@brd-rw/observability';
 
 setupProcessErrorHandlers({ serviceName: 'my-service' });
 
@@ -702,7 +702,7 @@ constructor(private loggerService: LoggerService) {}
 this.loggerService.handleInfoLog('doing work');
 
 // After
-import { ObservabilityLogger } from '@ivymurage-rw/observability';
+import { ObservabilityLogger } from '@brd-rw/observability';
 constructor(private logger: ObservabilityLogger) {}
 this.logger.info('doing work');
 ```
@@ -785,7 +785,7 @@ tracing: {
 
 ### Required steps
 
-- [ ] Install SDK: `npm install @ivymurage-rw/observability`
+- [ ] Install SDK: `npm install @brd-rw/observability`
 - [ ] **app.module.ts** — add `ObservabilityModule.forRoot({ ... })` and `ObservabilityHealthModule`
 - [ ] **main.ts** — add `setupProcessErrorHandlers()`, `bufferLogs: true`, `app.useLogger(app.get(NestPinoLogger))`
 - [ ] **main.ts** — remove `app.useGlobalFilters(new HttpExceptionFilter())`
@@ -846,43 +846,77 @@ tracing: {
 | `setupTracing` | Function | Early tracing init (before NestJS bootstrap) |
 | `sanitizeHeaders` | Function | Redact sensitive header values |
 
-## Developer setup (GitHub Packages)
+## Installation
 
-### 1. Create a GitHub personal access token
-
-Go to **GitHub > Settings > Developer settings > Personal access tokens > Tokens (classic)** and generate a token with the `read:packages` scope.
-
-### 2. Add `.npmrc` to your service
-
-```
-@ivymurage-rw:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
-```
-
-### 3. Set the token
+Published on npm under the `@brd-rw` org. No token or `.npmrc` needed.
 
 ```bash
-# Option A: shell export
-export GITHUB_TOKEN=ghp_your_token_here
-
-# Option B: global ~/.npmrc (set once)
-//npm.pkg.github.com/:_authToken=ghp_your_token_here
+npm install @brd-rw/observability
 ```
 
-### 4. Install
+### Publishing (maintainers only)
 
 ```bash
-npm install @ivymurage-rw/observability
+# One-time: login to npm with an account that belongs to the @brd-rw org
+npm login
+
+# Publish
+cd packages/sdk
+npm run build
+npm publish --access public
 ```
 
-### 5. CI/CD
+## Standalone mode (pure Node.js / Express / Fastify)
 
-```yaml
-# GitHub Actions — built-in GITHUB_TOKEN already has read:packages
-- run: npm install
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+No NestJS required. Import from `@brd-rw/observability/standalone`:
+
+```typescript
+import { createObservability } from '@brd-rw/observability/standalone';
+import { httpInstrumentation } from '@brd-rw/observability';
+import express from 'express';
+
+const obs = createObservability({
+  serviceName: 'my-worker',
+  tracing: { exporter: { type: 'otlp-http', endpoint: 'http://localhost:4318' } },
+  instrumentations: [httpInstrumentation({ ignoreIncomingPaths: ['/health', '/metrics'] })],
+});
+
+const app = express();
+
+// Request context + logging middleware
+app.use(obs.middleware());
+
+// Health + metrics endpoints
+app.get('/health', obs.healthHandler);
+app.get('/metrics', obs.metricsHandler);
+
+// Your routes
+app.get('/api/data', (req, res) => {
+  obs.logger.info('fetching data', { userId: req.query.userId });
+  res.json({ ok: true });
+});
+
+// Custom metrics
+const jobsCounter = obs.metrics.createCounter('jobs_processed_total', 'Jobs processed', ['type']);
+jobsCounter.inc({ type: 'email' });
+
+// Custom spans
+const result = await obs.tracer.startActiveSpan('process-job', async () => {
+  return doWork();
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => obs.shutdown());
+
+app.listen(3000);
 ```
+
+What you get — same as NestJS mode:
+- Structured JSON logs with `trace_id`, `request_id`
+- Distributed tracing (OpenTelemetry)
+- Prometheus metrics at `/metrics`
+- Health check at `/health`
+- All instrumentations (HTTP, Redis, Kafka, etc.)
 
 ## Signal correlation (metrics ↔ logs ↔ traces)
 

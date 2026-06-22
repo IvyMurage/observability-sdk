@@ -1,14 +1,15 @@
 {
-  "name": "@ivymurage-rw/observability",
-  "version": "0.1.17",
+  "name": "@brd-rw/observability",
+  "version": "1.0.0",
   "description": "Internal observability platform SDK for NestJS distributed services",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ivymurage-rw/internal-observability-platform.git",
+    "url": "https://github.com/brd-rw/internal-observability-platform.git",
     "directory": "packages/sdk"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -18,6 +19,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./standalone": {
+      "types": "./dist/standalone.d.ts",
+      "import": "./dist/standalone.mjs",
+      "require": "./dist/standalone.js"
     }
   },
   "files": [

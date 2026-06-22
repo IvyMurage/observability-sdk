@@ -64,3 +64,7 @@ export type { ProcessErrorHandlerOptions } from './bootstrap/process-error-handl
 
 // Early tracing init (call in main.ts before importing AppModule)
 export { setupTracing } from './tracing/tracing.init';
+
+// Standalone (framework-agnostic)
+export { createObservability } from './standalone';
+export type { Observability } from './standalone';

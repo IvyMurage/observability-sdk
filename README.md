@@ -5,7 +5,7 @@ Observability SDK and infrastructure for BRD NestJS microservices. One package g
 ## Repository structure
 
 ```
-├── packages/sdk/          # @ivymurage-rw/observability npm package
+├── packages/sdk/          # @brd-rw/observability npm package
 │   ├── src/               # SDK source code
 │   ├── README.md          # Full developer guide (setup, configuration, examples)
 │   └── package.json
@@ -38,12 +38,12 @@ Observability SDK and infrastructure for BRD NestJS microservices. One package g
 ## Quick start
 
 ```bash
-npm install @ivymurage-rw/observability
+npm install @brd-rw/observability
 ```
 
 ```typescript
 // app.module.ts
-import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@ivymurage-rw/observability';
+import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@brd-rw/observability';
 
 @Module({
   imports: [
@@ -60,7 +60,7 @@ export class AppModule {}
 
 ```typescript
 // main.ts
-import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage-rw/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@brd-rw/observability';
 
 setupProcessErrorHandlers({ serviceName: 'my-service' });
 
@@ -154,20 +154,12 @@ If your running your services using pm2, it will write files stdout/stderr at ``
 | application-service | 9004 | SDK integrated + external API spans |
 | access-management-service | 9000 | SDK integrated |
 
-## Developer setup (GitHub Packages)
+## Installation
 
-The SDK is published to GitHub Packages:
+Published on npm under the `@brd-rw` org. No token or `.npmrc` needed.
 
 ```bash
-# 1. Add .npmrc to your service root
-echo "@ivymurage-rw:registry=https://npm.pkg.github.com" > .npmrc
-echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> .npmrc
-
-# 2. Set your token
-export GITHUB_TOKEN=ghp_your_token_here
-
-# 3. Install
-npm install @ivymurage-rw/observability
+npm install @brd-rw/observability
 ```
 
 ## Documentation
