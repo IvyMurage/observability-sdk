@@ -1,0 +1,242 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Heap Memory Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "spanNulls": false },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "{__name__=~\".+_nodejs_heap_size_used_bytes\", service=~\"$service\"}",
+          "legendFormat": "{{service}} used",
+          "refId": "A"
+        },
+        {
+          "expr": "{__name__=~\".+_nodejs_heap_size_total_bytes\", service=~\"$service\"}",
+          "legendFormat": "{{service}} total",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Process CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "spanNulls": false },
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "rate({__name__=~\".+_process_cpu_user_seconds_total\", service=~\"$service\"}[$__rate_interval])",
+          "legendFormat": "{{service}} user",
+          "refId": "A"
+        },
+        {
+          "expr": "rate({__name__=~\".+_process_cpu_system_seconds_total\", service=~\"$service\"}[$__rate_interval])",
+          "legendFormat": "{{service}} system",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Event Loop Lag",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "{__name__=~\".+_nodejs_eventloop_lag_p50_seconds\", service=~\"$service\"}",
+          "legendFormat": "{{service}} p50",
+          "refId": "A"
+        },
+        {
+          "expr": "{__name__=~\".+_nodejs_eventloop_lag_p99_seconds\", service=~\"$service\"}",
+          "legendFormat": "{{service}} p99",
+          "refId": "B"
+        },
+        {
+          "expr": "{__name__=~\".+_nodejs_eventloop_lag_mean_seconds\", service=~\"$service\"}",
+          "legendFormat": "{{service}} mean",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "title": "Active Handles & Requests",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "{__name__=~\".+_nodejs_active_handles_total\", service=~\"$service\"}",
+          "legendFormat": "{{service}} handles",
+          "refId": "A"
+        },
+        {
+          "expr": "{__name__=~\".+_nodejs_active_requests_total\", service=~\"$service\"}",
+          "legendFormat": "{{service}} requests",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Resident Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "spanNulls": false },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "{__name__=~\".+_process_resident_memory_bytes\", service=~\"$service\"}",
+          "legendFormat": "{{service}} RSS",
+          "refId": "A"
+        },
+        {
+          "expr": "{__name__=~\".+_nodejs_external_memory_bytes\", service=~\"$service\"}",
+          "legendFormat": "{{service}} external",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "GC Duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "rate({__name__=~\".+_nodejs_gc_duration_seconds_sum\", service=~\"$service\"}[$__rate_interval])",
+          "legendFormat": "{{service}} {{kind}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Process Uptime",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "dtdurations"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "expr": "time() - {__name__=~\".+_process_start_time_seconds\", service=~\"$service\"}",
+          "legendFormat": "{{service}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["observability", "nodejs", "runtime"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values({__name__=~\".+_nodejs_heap_size_used_bytes\"}, service)",
+        "includeAll": true,
+        "multi": true,
+        "name": "service",
+        "query": { "query": "label_values({__name__=~\".+_nodejs_heap_size_used_bytes\"}, service)", "refId": "StandardVariableQuery" },
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Node.js Runtime",
+  "uid": "nodejs-runtime"
+}

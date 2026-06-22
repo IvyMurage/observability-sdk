@@ -1,0 +1,74 @@
+groups:
+  - name: service_health
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "{{ $labels.job }} ({{ $labels.instance }}) has been unreachable for 1 minute."
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (job) (rate({__name__=~".+_http_requests_total", status_code=~"5.."}[5m]))
+            /
+            sum by (job) (rate({__name__=~".+_http_requests_total"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} error rate above 5%"
+          description: "{{ $labels.job }} has {{ $value | humanizePercentage }} 5xx error rate over 5 minutes."
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (job, le) (rate({__name__=~".+_http_request_duration_seconds_bucket"}[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} p95 latency above 2s"
+          description: "{{ $labels.job }} p95 response time is {{ $value | humanizeDuration }}."
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, le) (rate({__name__=~".+_http_request_duration_seconds_bucket"}[5m]))
+          ) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} p99 latency above 5s"
+          description: "{{ $labels.job }} p99 response time is {{ $value | humanizeDuration }}."
+
+  - name: node_runtime
+    rules:
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            {__name__=~".+_nodejs_heap_size_used_bytes"}
+            /
+            {__name__=~".+_nodejs_heap_size_total_bytes"}
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} heap usage above 85%"
+          description: "{{ $labels.job }} heap is at {{ $value | humanizePercentage }} for 10 minutes."
+
+      - alert: HighEventLoopLag
+        expr: '{__name__=~".+_nodejs_eventloop_lag_seconds"} > 0.5'
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} event loop lag above 500ms"
+          description: "{{ $labels.job }} event loop lag is {{ $value | humanizeDuration }}."
