@@ -52,6 +52,20 @@ export class ObservabilityLogger {
     this.pino.fatal(meta || {}, message);
   }
 
+  logCaughtError(error: unknown): void {
+    const err = error as Record<string, any>;
+    const status = err?.getStatus?.() ?? err?.statusCode ?? 500;
+    const message = err?.response?.message ?? err?.message ?? 'Unknown error';
+    const meta: Record<string, unknown> = { statusCode: status, message };
+
+    if (status >= 500) {
+      meta.stack = err?.stack;
+      this.pino.error(meta, 'request_error');
+    } else {
+      this.pino.warn(meta, 'request_error');
+    }
+  }
+
   child(bindings: Record<string, unknown>): ObservabilityLogger {
     const child = Object.create(this) as ObservabilityLogger;
     child.pino = this.pino.child(bindings);
