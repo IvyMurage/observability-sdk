@@ -33,6 +33,8 @@ Structured logging, distributed tracing, and Prometheus metrics for NestJS servi
   - [Migrating from Winston / Morgan / custom loggers](#migrating-from-winston--morgan--custom-loggers)
 - **Part 8: Configuration reference**
   - [Full configuration](#full-configuration)
+  - [Tracing configuration](#tracing-configuration)
+  - [Process error handlers configuration](#process-error-handlers-configuration)
   - [Available instrumentations](#available-instrumentations)
   - [Microservice setup checklist](#microservice-setup-checklist)
 - **Part 9: Reference**
@@ -278,7 +280,9 @@ export class UsersController {
 }
 ```
 
-### Option B: Helper method (recommended for controllers with many catch blocks)
+### Option B: `logCaughtError` (built into SDK — recommended)
+
+`ObservabilityLogger` has a built-in `logCaughtError(error)` method that handles all the boilerplate: extracts status and message from NestJS exception shapes, picks the right log level (`warn` for 4xx, `error` for 5xx), and includes stack traces only for server errors. No helper function needed.
 
 ```typescript
 import { ObservabilityLogger } from '@brdrwanda/observability';
@@ -290,23 +294,13 @@ export class UsersController {
     private readonly logger: ObservabilityLogger,
   ) {}
 
-  private logCaughtError(error: any): void {
-    const status = error?.getStatus?.() || error?.statusCode || 500;
-    const message = error?.response?.message || error?.message || 'Unknown error';
-    if (status >= 500) {
-      this.logger.error('request_error', { statusCode: status, message, stack: error?.stack });
-    } else {
-      this.logger.warn('request_error', { statusCode: status, message });
-    }
-  }
-
   @Post('login')
   async login(@Body() dto: UserLoginDto, @Res() res: Response) {
     try {
       const user = await this.usersService.login(dto);
       return ResponseCommon.handleSuccess(HttpStatus.OK, 'Login successful', res, user);
     } catch (error) {
-      this.logCaughtError(error);
+      this.logger.logCaughtError(error);
       return ResponseCommon.handleError(error?.getStatus() || 500, error?.message, res);
     }
   }
@@ -317,14 +311,14 @@ export class UsersController {
       const result = await this.usersService.forgotPassword(dto);
       return ResponseCommon.handleSuccess(HttpStatus.OK, 'Reset link sent', res, result);
     } catch (error) {
-      this.logCaughtError(error);
+      this.logger.logCaughtError(error);
       return ResponseCommon.handleError(error?.getStatus() || 500, error?.message, res);
     }
   }
 }
 ```
 
-The helper extracts the real message from NestJS exception shapes, picks the right log level, and includes stack traces only for 5xx. All entries automatically get `trace_id` and `span_id` from the SDK's pino mixin.
+All entries automatically get `trace_id` and `span_id` from the SDK's pino mixin.
 
 ### Output examples
 
@@ -802,6 +796,130 @@ ObservabilityModule.forRoot({
 })
 ```
 
+### Tracing configuration
+
+The `tracing` block controls how traces are collected, sampled, and exported:
+
+```typescript
+tracing: {
+  enabled: true,                    // default: true. Set false to disable tracing entirely
+
+  exporter: {
+    type: 'otlp-http',             // how traces are shipped out
+    endpoint: 'http://otel-collector:4318',
+    headers: {                      // optional auth headers for the collector
+      'Authorization': 'Bearer <token>',
+    },
+  },
+
+  sampling: {
+    type: 'parent-based',           // sampling strategy
+    ratio: 0.1,                     // 10% of traces sampled
+  },
+}
+```
+
+#### Exporter types
+
+| Type | When to use | Notes |
+|------|------------|-------|
+| `otlp-http` | Production — sending to OTEL Collector or Tempo | Default in prod. Requires `@opentelemetry/exporter-trace-otlp-http` (bundled) |
+| `otlp-grpc` | Production — when collector accepts gRPC | Requires `@opentelemetry/exporter-trace-otlp-grpc` (install separately) |
+| `console` | Local development | Prints spans to terminal, no collector needed |
+| `none` | Disable trace export | Spans still created (for context propagation) but not exported |
+
+#### Sampling types
+
+| Type | Behavior | When to use |
+|------|----------|------------|
+| `always` | 100% of traces sampled | Local development, debugging |
+| `never` | 0% of traces sampled | Disable tracing without removing config |
+| `probabilistic` | Sample at `ratio` (e.g., 0.1 = 10%) | Production — control volume |
+| `parent-based` | Follow parent span's decision, otherwise use `ratio` | **Default.** Production — respects upstream sampling decisions |
+
+#### Environment-aware defaults
+
+| Setting | Development | Production |
+|---------|-------------|------------|
+| `exporter.type` | `console` | `otlp-http` |
+| `sampling.ratio` | `1` (100%) | `0.1` (10%) |
+| `exporter.endpoint` | `http://localhost:4318` | `OTEL_EXPORTER_OTLP_ENDPOINT` env var |
+
+#### Early tracing init with `setupTracing`
+
+Tracing must start **before** NestJS imports your modules, otherwise HTTP/DB instrumentations miss early requests. If you notice missing spans on startup, call `setupTracing()` at the top of `main.ts`:
+
+```typescript
+import { setupTracing, setupProcessErrorHandlers, NestPinoLogger } from '@brdrwanda/observability';
+
+// These two run BEFORE NestJS bootstraps
+setupProcessErrorHandlers({ serviceName: 'my-service' });
+setupTracing({
+  serviceName: 'my-service',
+  tracing: {
+    exporter: { type: 'otlp-http', endpoint: 'http://otel-collector:4318' },
+    sampling: { ratio: 0.1 },
+  },
+});
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(NestPinoLogger));
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+> In most cases, the module's `onModuleInit` starts tracing early enough. Use `setupTracing()` only if you see missing spans.
+
+### Process error handlers configuration
+
+`setupProcessErrorHandlers()` catches fatal errors that happen **outside** NestJS — before bootstrap, during module resolution, or in unhandled promise rejections.
+
+```typescript
+setupProcessErrorHandlers({
+  serviceName: 'my-service',        // default: npm_package_name
+  exitOnUncaught: true,             // default: true — exit on uncaughtException
+  exitOnUnhandledRejection: true,   // default: true — exit on unhandledRejection
+});
+```
+
+#### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `serviceName` | `process.env.npm_package_name` | Included in the fatal log entry for identifying which service crashed |
+| `exitOnUncaught` | `true` | Exit process after `uncaughtException`. Set `false` only if you have a custom recovery strategy |
+| `exitOnUnhandledRejection` | `true` | Exit process after `unhandledRejection`. Set `false` to log but continue |
+
+#### Output format
+
+Both handlers write structured JSON to **stderr** (not stdout) so log collectors can still parse them even if pino is not initialized:
+
+```json
+{
+  "level": "fatal",
+  "time": 1719302400000,
+  "service_name": "my-service",
+  "msg": "uncaught_exception: Cannot find module './missing-file'",
+  "error": {
+    "name": "Error",
+    "message": "Cannot find module './missing-file'",
+    "stack": "Error: Cannot find module..."
+  }
+}
+```
+
+#### When to keep exits enabled (default)
+
+- **Production** — always. An uncaught exception means unknown state; restart is safest
+- **Kubernetes** — always. Let the process die, k8s restarts it with a clean state
+
+#### When to disable exits
+
+- **Development** — optionally set `exitOnUnhandledRejection: false` to avoid losing your dev server on every unhandled async error
+- **Graceful degradation** — if your service can safely continue after certain errors (rare)
+
 ### Local development tip
 
 ```typescript
@@ -847,7 +965,7 @@ tracing: {
 | Mistake | Symptom | Fix |
 |---------|---------|-----|
 | Custom `HttpExceptionFilter` in `main.ts` | Errors not logged by SDK | Remove `app.useGlobalFilters(...)` |
-| `try/catch` swallows exceptions | SDK filter never sees errors | Add `this.logCaughtError(error)` or `this.logger.warn(...)` in catch |
+| `try/catch` swallows exceptions | SDK filter never sees errors | Add `this.logger.logCaughtError(error)` in catch block |
 | `sampling: { ratio: 0.1 }` in dev | 90% of traces missing | Remove sampling config for local dev |
 | `exporter: { type: 'console' }` | Traces not sent to collector | Change to `otlp-http` |
 | Different `serviceName` in `main.ts` vs `app.module.ts` | Wrong service name in logs | Use same name in both files |
