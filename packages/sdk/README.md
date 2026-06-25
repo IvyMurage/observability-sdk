@@ -2,8 +2,56 @@
 
 Structured logging, distributed tracing, and Prometheus metrics for NestJS services. Drop-in module — takes about 10 minutes to integrate.
 
+## Why this SDK
+
+BRD microservices historically used a mix of `console.log`, Winston via `LoggerService`, Morgan, and the built-in NestJS `Logger` — each with different formats, no trace correlation, and no structured metadata. Debugging production issues meant SSH-ing into servers and grepping raw text logs across multiple services with no way to follow a request end-to-end.
+
+### Problems this SDK solves
+
+| Problem | Before | After |
+|---------|--------|-------|
+| **Inconsistent logging** | Each service uses a different logger (Winston, Morgan, console.log) with different formats | Single structured JSON format across all services via Pino |
+| **No request tracing** | Cannot follow a request across api-gateway → auth-service → application-service | Every log line carries `trace_id` + `span_id` — one ID links all services |
+| **Manual context passing** | Developers manually build context objects with `createLoggingContextWithId(traceId, spanId, ...)` | SDK injects trace context automatically via AsyncLocalStorage — zero developer effort |
+| **Silent errors** | `try/catch` blocks swallow exceptions, custom `HttpExceptionFilter` overrides framework logging | SDK exception filter auto-classifies and logs all errors (4xx=warn, 5xx=error with stack) |
+| **No metrics** | No HTTP latency tracking, no error rate visibility, no alerting data | Prometheus metrics auto-registered: `http_requests_total`, `http_request_duration_seconds` with exemplars |
+| **No health checks** | Kubernetes/load balancers have no way to check service health | `/health` and `/metrics` endpoints out of the box |
+| **Sensitive data in logs** | Passwords, tokens, API keys logged in plain text | Auto-redaction of sensitive fields (`*.password`, `*.token`, `*.authorization`) |
+| **Kafka blind spots** | Fire-and-forget messages — consumer has no idea which request triggered it | Trace context propagated through Kafka headers, full producer→consumer trace |
+| **Slow query invisible** | Database queries that take 3+ seconds go unnoticed | Sequelize instrumentation with configurable slow query warnings |
+| **No signal correlation** | Metrics, logs, and traces live in separate silos | Exemplars on metrics link to traces, traces link to logs — click-through in Grafana |
+| **Boilerplate per service** | Each service re-implements logging setup, error handling, health checks | One `npm install` + 3 lines of config. Done |
+
+### What changes for developers
+
+**Before** — every controller needed this pattern:
+```typescript
+import LoggerService from './logger/logger.service';
+import { createLoggingContextWithId } from './common/helpers';
+
+constructor(private readonly logger: LoggerService) {}
+
+async doWork(traceId: string, spanId: string) {
+  const context = createLoggingContextWithId(traceId, spanId, 'doWork', ...);
+  this.logger.handleInfoLog('doing work', context);
+}
+```
+
+**After** — inject and use:
+```typescript
+import { ObservabilityLogger } from '@brdrwanda/observability';
+
+constructor(private readonly logger: ObservabilityLogger) {}
+
+async doWork() {
+  this.logger.info('doing work', { orderId: '123' });
+  // trace_id, span_id, request_id, service_name — all injected automatically
+}
+```
+
 ## Table of Contents
 
+- [Why this SDK](#why-this-sdk)
 - [What you get](#what-you-get)
 - **Part 1: Setup**
   - [1. Install](#1-install)
