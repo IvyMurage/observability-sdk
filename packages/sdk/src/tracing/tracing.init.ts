@@ -1,6 +1,6 @@
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from '@opentelemetry/semantic-conventions';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import type { Instrumentation } from '@opentelemetry/instrumentation';
@@ -20,27 +20,29 @@ export function initTracing(config: ResolvedConfig): NodeTracerProvider | null {
   if (!config.tracing.enabled) return null;
   if (provider) return provider;
 
-  const resource = new Resource({
+  const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: config.serviceName,
     [ATTR_SERVICE_VERSION]: config.version,
     [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: config.environment,
   });
 
+  const exporter = createExporter(config);
+  const spanProcessors = exporter
+    ? [
+        config.environment === 'development'
+          ? new SimpleSpanProcessor(exporter)
+          : new BatchSpanProcessor(exporter, {
+              maxExportBatchSize: 512,
+              scheduledDelayMillis: 5000,
+            }),
+      ]
+    : [];
+
   provider = new NodeTracerProvider({
     resource,
     sampler: createSampler(config.tracing.sampling),
+    spanProcessors,
   });
-
-  const exporter = createExporter(config);
-  if (exporter) {
-    const processor = config.environment === 'development'
-      ? new SimpleSpanProcessor(exporter)
-      : new BatchSpanProcessor(exporter, {
-          maxExportBatchSize: 512,
-          scheduledDelayMillis: 5000,
-        });
-    provider.addSpanProcessor(processor);
-  }
 
   provider.register();
 
