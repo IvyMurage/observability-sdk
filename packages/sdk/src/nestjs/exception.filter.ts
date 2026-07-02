@@ -8,13 +8,17 @@ import {
 } from '@nestjs/common';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import type { Response } from 'express';
-import { OBSERVABILITY_LOGGER } from '../core/constants';
+import { OBSERVABILITY_CONFIG, OBSERVABILITY_LOGGER } from '../core/constants';
 import type { ObservabilityLogger } from '../logger/logger.service';
+import type { ResolvedConfig } from '../core/types';
 import { getContext } from '../core/context';
 
 @Catch()
 export class ObservabilityExceptionFilter implements ExceptionFilter {
-  constructor(@Inject(OBSERVABILITY_LOGGER) private logger: ObservabilityLogger) {}
+  constructor(
+    @Inject(OBSERVABILITY_LOGGER) private logger: ObservabilityLogger,
+    @Inject(OBSERVABILITY_CONFIG) private config: ResolvedConfig,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const httpCtx = host.switchToHttp();
@@ -46,10 +50,12 @@ export class ObservabilityExceptionFilter implements ExceptionFilter {
       meta.stack = exception.stack;
     }
 
-    if (status >= 500) {
-      this.logger.error(event, meta);
-    } else if (status >= 400) {
-      this.logger.warn(event, meta);
+    if (this.config.logger.autoErrorLogging) {
+      if (status >= 500) {
+        this.logger.error(event, meta);
+      } else if (status >= 400) {
+        this.logger.warn(event, meta);
+      }
     }
 
     const span = trace.getActiveSpan();

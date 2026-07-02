@@ -12,7 +12,7 @@ scrape_configs:
     static_configs:
       - targets: [localhost]
         labels:
-          __path__: /var/log/services/*.log
+          __path__: /var/log/pm2/*-out.log
     pipeline_stages:
       - json:
           expressions:

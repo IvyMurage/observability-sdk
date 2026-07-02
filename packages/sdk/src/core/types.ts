@@ -21,6 +21,11 @@ export interface LoggerConfig {
   level?: LogLevel;
   prettyPrint?: boolean;
   redaction?: RedactionConfig;
+  autoRequestLogging?: boolean;
+  autoErrorLogging?: boolean;
+  logRequestBody?: boolean;
+  logResponseBody?: boolean;
+  excludeRoutes?: string[];
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
@@ -84,7 +89,10 @@ export interface ResolvedConfig {
   environment: string;
   version: string;
 
-  logger: Required<LoggerConfig> & { redaction: Required<RedactionConfig> };
+  logger: Required<LoggerConfig> & {
+    redaction: Required<RedactionConfig>;
+    excludeRoutes: string[];
+  };
   tracing: Required<TracingConfig> & {
     exporter: Required<TracingExporterConfig>;
     sampling: Required<SamplingConfig>;

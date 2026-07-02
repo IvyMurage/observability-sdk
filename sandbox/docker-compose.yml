@@ -66,7 +66,7 @@ services:
     image: grafana/promtail:2.9.6
     volumes:
       - ./promtail/config.yaml:/etc/promtail/config.yaml:ro
-      - /tmp/observability-logs:/var/log/services:ro
+      - ~/.pm2/logs:/var/log/pm2:ro
     command: -config.file=/etc/promtail/config.yaml
     depends_on:
       - loki
