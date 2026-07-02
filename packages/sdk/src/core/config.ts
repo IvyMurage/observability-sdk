@@ -13,6 +13,11 @@ export function resolveConfig(config: ObservabilityConfig): ResolvedConfig {
     logger: {
       level: config.logger?.level || (isProd ? 'info' : 'debug'),
       prettyPrint: config.logger?.prettyPrint ?? !isProd,
+      autoRequestLogging: config.logger?.autoRequestLogging ?? true,
+      autoErrorLogging: config.logger?.autoErrorLogging ?? true,
+      logRequestBody: config.logger?.logRequestBody ?? false,
+      logResponseBody: config.logger?.logResponseBody ?? false,
+      excludeRoutes: config.logger?.excludeRoutes ?? ['/health', '/metrics'],
       redaction: {
         paths: config.logger?.redaction?.paths || config.redaction?.paths || DEFAULT_REDACTION_PATHS,
         censor: config.logger?.redaction?.censor || config.redaction?.censor || DEFAULT_CENSOR,
