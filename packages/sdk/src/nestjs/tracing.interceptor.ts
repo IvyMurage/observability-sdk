@@ -8,15 +8,33 @@ import {
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { trace, context as otelContext, SpanStatusCode } from '@opentelemetry/api';
-import { OBSERVABILITY_TRACER } from '../core/constants';
+import { OBSERVABILITY_TRACER, OBSERVABILITY_CONFIG } from '../core/constants';
 import { getContext, enrichContextFromSpan } from '../core/context';
 import type { ObservabilityTracer } from '../tracing/tracer.service';
+import type { ResolvedConfig } from '../core/types';
+
+const DEFAULT_EXCLUDE = ['/health', '/metrics', '/favicon.ico'];
 
 @Injectable()
 export class TracingInterceptor implements NestInterceptor {
-  constructor(@Inject(OBSERVABILITY_TRACER) private tracer: ObservabilityTracer) {}
+  private excludeSet: Set<string>;
+
+  constructor(
+    @Inject(OBSERVABILITY_TRACER) private tracer: ObservabilityTracer,
+    @Inject(OBSERVABILITY_CONFIG) private config: ResolvedConfig,
+  ) {
+    const configured = config.logger.excludeRoutes ?? [];
+    this.excludeSet = new Set([...DEFAULT_EXCLUDE, ...configured]);
+  }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const req = context.switchToHttp().getRequest?.();
+    const route = req?.url?.split('?')[0];
+
+    if (route && this.excludeSet.has(route)) {
+      return next.handle();
+    }
+
     const handler = context.getHandler();
     const controller = context.getClass();
     const spanName = `${controller.name}.${handler.name}`;
@@ -31,7 +49,6 @@ export class TracingInterceptor implements NestInterceptor {
       'nestjs.type': context.getType(),
     });
 
-    const req = context.switchToHttp().getRequest?.();
     if (req?.method) {
       span.setAttribute('http.method', req.method);
       span.setAttribute('http.url', req.url);

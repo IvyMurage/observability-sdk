@@ -1,10 +1,10 @@
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from '@opentelemetry/semantic-conventions';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import type { Instrumentation } from '@opentelemetry/instrumentation';
-import type { SpanExporter } from '@opentelemetry/sdk-trace-base';
+import type { SpanExporter, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import type { ObservabilityConfig, ResolvedConfig, InstrumentationPlugin } from '../core/types';
 import { resolveConfig } from '../core/config';
 import { createSampler } from './sampling';
@@ -20,17 +20,13 @@ export function initTracing(config: ResolvedConfig): NodeTracerProvider | null {
   if (!config.tracing.enabled) return null;
   if (provider) return provider;
 
-  const resource = new Resource({
+  const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: config.serviceName,
     [ATTR_SERVICE_VERSION]: config.version,
     [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: config.environment,
   });
 
-  provider = new NodeTracerProvider({
-    resource,
-    sampler: createSampler(config.tracing.sampling),
-  });
-
+  const spanProcessors: SpanProcessor[] = [];
   const exporter = createExporter(config);
   if (exporter) {
     const processor = config.environment === 'development'
@@ -39,8 +35,14 @@ export function initTracing(config: ResolvedConfig): NodeTracerProvider | null {
           maxExportBatchSize: 512,
           scheduledDelayMillis: 5000,
         });
-    provider.addSpanProcessor(processor);
+    spanProcessors.push(processor);
   }
+
+  provider = new NodeTracerProvider({
+    resource,
+    sampler: createSampler(config.tracing.sampling),
+    spanProcessors,
+  });
 
   provider.register();
 
