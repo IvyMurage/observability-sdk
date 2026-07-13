@@ -3,7 +3,7 @@ import {
   ObservabilityModule,
   ObservabilityHealthModule,
   httpInstrumentation,
-} from '@brdrwanda/observability';
+} from '@ivymurage/observability';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 

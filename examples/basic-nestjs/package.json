@@ -10,7 +10,7 @@
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/platform-express": "^10.0.0",
-    "@brdrwanda/observability": "workspace:*",
+    "@ivymurage/observability": "workspace:*",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.0.0"
   },

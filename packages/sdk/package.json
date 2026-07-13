@@ -1,10 +1,10 @@
 {
-  "name": "@brdrwanda/observability",
+  "name": "@ivymurage/observability",
   "version": "1.0.0",
   "description": "Internal observability platform SDK for NestJS distributed services",
   "repository": {
     "type": "git",
-    "url": "https://github.com/brdbank/observability-sdk.git"
+    "url": "https://github.com/IvyMurage/observability-sdk.git"
   },
   "publishConfig": {
     "access": "public",

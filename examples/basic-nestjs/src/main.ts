@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { NestPinoLogger } from '@brdrwanda/observability';
+import { NestPinoLogger } from '@ivymurage/observability';
 import { AppModule } from './app.module';
 
 async function bootstrap() {

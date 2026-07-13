@@ -1,6 +1,6 @@
 # Internal Observability Platform
 
-Observability SDK and infrastructure for BRD NestJS microservices. One package gives every service structured logging, distributed tracing, Prometheus metrics, and health checks.
+Observability SDK and infrastructure for NestJS microservices. One package gives every service structured logging, distributed tracing, Prometheus metrics, and health checks.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ Observability SDK and infrastructure for BRD NestJS microservices. One package g
 ## Repository structure
 
 ```
-├── packages/sdk/          # @brdrwanda/observability npm package
+├── packages/sdk/          # @ivymurage/observability npm package
 │   ├── src/               # SDK source code
 │   ├── README.md          # Full developer guide (setup, configuration, examples)
 │   └── package.json
@@ -54,12 +54,12 @@ Observability SDK and infrastructure for BRD NestJS microservices. One package g
 ## Quick start
 
 ```bash
-npm install @brdrwanda/observability
+npm install @ivymurage/observability
 ```
 
 ```typescript
 // app.module.ts
-import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@brdrwanda/observability';
+import { ObservabilityModule, ObservabilityHealthModule, httpInstrumentation } from '@ivymurage/observability';
 
 @Module({
   imports: [
@@ -76,7 +76,7 @@ export class AppModule {}
 
 ```typescript
 // main.ts
-import { setupProcessErrorHandlers, NestPinoLogger } from '@brdrwanda/observability';
+import { setupProcessErrorHandlers, NestPinoLogger } from '@ivymurage/observability';
 
 setupProcessErrorHandlers({ serviceName: 'my-service' });
 
@@ -172,10 +172,10 @@ If your running your services using pm2, it will write files stdout/stderr at ``
 
 ## Installation
 
-Published on npm under the `@brdrwanda` org. No token or `.npmrc` needed.
+Published on npm under the `@ivymurage` org. No token or `.npmrc` needed.
 
 ```bash
-npm install @brdrwanda/observability
+npm install @ivymurage/observability
 ```
 
 ## Documentation
