@@ -89,7 +89,7 @@ app.useLogger(app.get(NestPinoLogger));
 
 ## Architecture
 
-<img width="1536" height="1024" alt="ChatGPT Image Jun 4, 2026, 12_59_03 PM" src="https://github.com/user-attachments/assets/58945a58-7781-4b79-9f89-7d2900d38ce7" />
+<img width="1536" height="1024" alt="SDK Architecture" src="docs/images/architecture.png" />
 
 
 ## Sandbox (local observability stack)
