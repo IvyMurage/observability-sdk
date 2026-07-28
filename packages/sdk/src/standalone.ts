@@ -91,7 +91,9 @@ export function createObservability(config: ObservabilityConfig): Observability 
     await shutdownTracing();
     for (const plugin of resolved.instrumentations) {
       if (plugin.shutdown) {
-        try { await plugin.shutdown(); } catch {}
+        try { await plugin.shutdown(); } catch (err) {
+          console.warn(`[observability] Failed to shutdown plugin "${plugin.name}":`, err);
+        }
       }
     }
   }

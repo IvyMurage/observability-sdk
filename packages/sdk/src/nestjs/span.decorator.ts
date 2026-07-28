@@ -6,7 +6,7 @@ export function Span(name?: string): MethodDecorator {
     const spanName = name || String(propertyKey);
 
     descriptor.value = function (...args: unknown[]) {
-      const tracer = trace.getTracer('observability-sdk');
+      const tracer = trace.getTracer('@ivymurage/observability');
       return tracer.startActiveSpan(spanName, (span) => {
         try {
           const result = original.apply(this, args);

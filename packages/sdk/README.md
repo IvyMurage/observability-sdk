@@ -657,12 +657,12 @@ export class ExternalIntegrationService {
 
 | Integration | Span name | Why trace it |
 |-------------|-----------|-------------|
-| Access control login | `access-control-login` | Auth token fetch, can timeout |
-| ESRI / GIS lookup | `esri-lookup` | External GIS service, 15s timeout |
-| Land center lookup | `land-center-lookup` | Government land registry |
-| Credit score submission | `credit-score-submit` | Cross-service, affects loan decisions |
-| iBank budget lookup | `ibank-budget-lookup` | Core banking integration |
-| Minecofin loan submit | `minecofin-loan-submit` | Government system, slow and flaky |
+| Payment gateway charge | `payment-gateway-charge` | External payment API, can timeout |
+| Geocoding lookup | `geocoding-lookup` | External GIS service, 15s timeout |
+| Registry lookup | `registry-lookup` | Government registry API |
+| Credit score submission | `credit-score-submit` | Cross-service, affects decisions |
+| Budget lookup | `budget-lookup` | Core banking integration |
+| Tax submission | `tax-submission` | Government system, slow and flaky |
 | Workflow start/resume | `workflow-start`, `workflow-resume` | Workflow engine, multi-step |
 | Auth get departments | `auth-get-departments` | Cross-service lookup |
 

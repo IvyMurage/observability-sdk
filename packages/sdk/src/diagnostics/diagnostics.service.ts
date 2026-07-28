@@ -1,6 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { OBSERVABILITY_CONFIG } from '../core/constants';
 import type { ResolvedConfig } from '../core/types';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { version: SDK_VERSION } = require('../../package.json');
 
 export interface DiagnosticsReport {
   sdk_version: string;
@@ -19,7 +21,7 @@ export class DiagnosticsService {
 
   getReport(): DiagnosticsReport {
     return {
-      sdk_version: '0.1.0',
+      sdk_version: SDK_VERSION,
       service: this.config.serviceName,
       environment: this.config.environment,
       uptime_seconds: Math.floor(process.uptime()),

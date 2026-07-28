@@ -1,4 +1,5 @@
 import { Controller, Get, Req, Res, Inject } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { Registry } from 'prom-client';
 import { OBSERVABILITY_METRICS } from '../core/constants';
 import type { ObservabilityMetrics } from './metrics.service';
@@ -8,7 +9,7 @@ export class MetricsController {
   constructor(@Inject(OBSERVABILITY_METRICS) private metrics: ObservabilityMetrics) {}
 
   @Get('metrics')
-  async getMetrics(@Req() req: any, @Res() res: any): Promise<void> {
+  async getMetrics(@Req() req: Request, @Res() res: Response): Promise<void> {
     const accept: string = req.headers['accept'] || '';
     const registry = this.metrics.getRegistry();
 

@@ -53,9 +53,10 @@ export class ObservabilityLogger {
   }
 
   logCaughtError(error: unknown): void {
-    const err = error as Record<string, any>;
-    const status = err?.getStatus?.() ?? err?.statusCode ?? 500;
-    const message = err?.response?.message ?? err?.message ?? 'Unknown error';
+    const err = error as Record<string, unknown>;
+    const errObj = err as { getStatus?: () => number; statusCode?: number; response?: { message?: string }; message?: string; stack?: string };
+    const status = errObj?.getStatus?.() ?? errObj?.statusCode ?? 500;
+    const message = errObj?.response?.message ?? errObj?.message ?? 'Unknown error';
     const meta: Record<string, unknown> = { statusCode: status, message };
 
     if (status >= 500) {

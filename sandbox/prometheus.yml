@@ -10,7 +10,7 @@ global:
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: ["localhost:9093"]
+        - targets: ["alertmanager:9093"]
 
 rule_files:
   - /etc/prometheus/alerts.yml
@@ -18,25 +18,19 @@ rule_files:
 scrape_configs:
   - job_name: "otel-collector"
     static_configs:
-      - targets: ["localhost:8889"]
+      - targets: ["otel-collector:8889"]
 
-  - job_name: "api-gateway"
+  - job_name: "my-api"
     metrics_path: /metrics
     static_configs:
-      - targets: ["localhost:7070"]
+      - targets: ["host.docker.internal:3000"]
 
-  - job_name: "authentication-service"
+  - job_name: "my-auth-service"
     metrics_path: /metrics
     static_configs:
-      - targets: ["localhost:9001"]
+      - targets: ["host.docker.internal:3001"]
 
-  - job_name: "application-service"
+  - job_name: "my-worker"
     metrics_path: /metrics
     static_configs:
-      - targets: ["localhost:9004"]
-
-
-  - job_name: "access-management-service"
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["localhost:9000"]
+      - targets: ["host.docker.internal:3002"]

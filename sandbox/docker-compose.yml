@@ -40,7 +40,8 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./alerts.yml:/etc/prometheus/alerts.yml:ro
-    network_mode: host
+    ports:
+      - "9090:9090"
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--enable-feature=exemplar-storage'
@@ -66,7 +67,7 @@ services:
     image: grafana/promtail:2.9.6
     volumes:
       - ./promtail/config.yaml:/etc/promtail/config.yaml:ro
-      - ~/.pm2/logs:/var/log/pm2:ro
+      - /var/log:/var/log:ro
     command: -config.file=/etc/promtail/config.yaml
     depends_on:
       - loki
@@ -79,4 +80,5 @@ services:
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    network_mode: host
+    ports:
+      - "3000:3000"

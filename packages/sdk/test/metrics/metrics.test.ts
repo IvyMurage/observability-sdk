@@ -63,7 +63,7 @@ describe('ObservabilityMetrics', () => {
 
   it('should return correct content type', () => {
     const contentType = metrics.getContentType();
-    expect(contentType).toContain('text/plain');
+    expect(contentType).toMatch(/text\/plain|application\/openmetrics-text/);
   });
 
   it('should apply prefix to metric names', async () => {

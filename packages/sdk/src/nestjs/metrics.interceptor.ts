@@ -40,32 +40,26 @@ export class MetricsInterceptor implements NestInterceptor {
     const route = this.extractRoute(context, req);
     const start = performance.now();
 
+    const recordMetrics = (statusCode: string) => {
+      const duration = (performance.now() - start) / 1000;
+      const labels = { method, route, status_code: statusCode };
+      const traceId = getContext()?.traceId;
+      this.httpRequestsTotal.inc(labels);
+      this.httpRequestDuration.observe({
+        labels,
+        value: duration,
+        exemplarLabels: traceId ? { trace_id: traceId } : undefined,
+      });
+    };
+
     return next.handle().pipe(
       tap({
         next: () => {
           const res = context.switchToHttp().getResponse();
-          const statusCode = String(res.statusCode);
-          const duration = (performance.now() - start) / 1000;
-          const labels = { method, route, status_code: statusCode };
-          const traceId = getContext()?.traceId;
-          this.httpRequestsTotal.inc(labels);
-          this.httpRequestDuration.observe({
-            labels,
-            value: duration,
-            exemplarLabels: traceId ? { trace_id: traceId } : undefined,
-          });
+          recordMetrics(String(res.statusCode));
         },
         error: (err: Error & { status?: number }) => {
-          const statusCode = String(err.status || 500);
-          const duration = (performance.now() - start) / 1000;
-          const labels = { method, route, status_code: statusCode };
-          const traceId = getContext()?.traceId;
-          this.httpRequestsTotal.inc(labels);
-          this.httpRequestDuration.observe({
-            labels,
-            value: duration,
-            exemplarLabels: traceId ? { trace_id: traceId } : undefined,
-          });
+          recordMetrics(String(err.status || 500));
         },
       }),
     );

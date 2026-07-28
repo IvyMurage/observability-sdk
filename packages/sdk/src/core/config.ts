@@ -2,6 +2,22 @@ import type { ObservabilityConfig, ResolvedConfig } from './types';
 import { DEFAULT_REDACTION_PATHS, DEFAULT_CENSOR } from '../security/redaction';
 
 export function resolveConfig(config: ObservabilityConfig): ResolvedConfig {
+  if (!config.serviceName || typeof config.serviceName !== 'string') {
+    throw new Error('[observability] serviceName is required and must be a non-empty string');
+  }
+
+  if (config.tracing?.sampling?.ratio != null) {
+    const ratio = config.tracing.sampling.ratio;
+    if (ratio < 0 || ratio > 1) {
+      throw new Error(`[observability] sampling.ratio must be between 0 and 1, got ${ratio}`);
+    }
+  }
+
+  const validExporters = ['otlp-http', 'otlp-grpc', 'console', 'none'] as const;
+  if (config.tracing?.exporter?.type && !validExporters.includes(config.tracing.exporter.type as typeof validExporters[number])) {
+    throw new Error(`[observability] Unknown exporter type "${config.tracing.exporter.type}". Valid: ${validExporters.join(', ')}`);
+  }
+
   const environment = config.environment || process.env.NODE_ENV || 'development';
   const isProd = environment === 'production';
 
