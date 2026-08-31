@@ -24,7 +24,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate({__name__=~\".+_http_requests_total\", service=~\"$service\"}[$__rate_interval])) by (service)",
+          "expr": "sum(rate({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\"}[$__rate_interval])) by (service)",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -49,12 +49,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate({__name__=~\".+_http_requests_total\", service=~\"$service\", status_code=~\"5..\"}[$__rate_interval])) by (service)",
+          "expr": "sum(rate({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\", status_code=~\"5..\"}[$__rate_interval])) by (service)",
           "legendFormat": "{{service}} 5xx",
           "refId": "A"
         },
         {
-          "expr": "sum(rate({__name__=~\".+_http_requests_total\", service=~\"$service\", status_code=~\"4..\"}[$__rate_interval])) by (service)",
+          "expr": "sum(rate({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\", status_code=~\"4..\"}[$__rate_interval])) by (service)",
           "legendFormat": "{{service}} 4xx",
           "refId": "B"
         }
@@ -79,17 +79,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate({__name__=~\".+_http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+          "expr": "histogram_quantile(0.50, sum(rate({__name__=~\"(.*_)?http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "legendFormat": "{{service}} p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate({__name__=~\".+_http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+          "expr": "histogram_quantile(0.95, sum(rate({__name__=~\"(.*_)?http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "legendFormat": "{{service}} p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate({__name__=~\".+_http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
+          "expr": "histogram_quantile(0.99, sum(rate({__name__=~\"(.*_)?http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
           "legendFormat": "{{service}} p99",
           "refId": "C"
         }
@@ -123,7 +123,7 @@
       },
       "targets": [
         {
-          "expr": "100 * sum(rate({__name__=~\".+_http_requests_total\", service=~\"$service\", status_code=~\"5..\"}[$__rate_interval])) / (sum(rate({__name__=~\".+_http_requests_total\", service=~\"$service\"}[$__rate_interval])) > 0) or vector(0)",
+          "expr": "100 * sum(rate({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\", status_code=~\"5..\"}[$__rate_interval])) / (sum(rate({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\"}[$__rate_interval])) > 0) or vector(0)",
           "legendFormat": "Error %",
           "refId": "A"
         }
@@ -153,7 +153,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate({__name__=~\".+_http_requests_total\", service=~\"$service\"}[$__rate_interval]))",
+          "expr": "sum(rate({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\"}[$__rate_interval]))",
           "legendFormat": "req/s",
           "refId": "A"
         }
@@ -214,19 +214,19 @@
       ],
       "targets": [
         {
-          "expr": "sum(rate({__name__=~\".+_http_requests_total\", service=~\"$service\"}[$__rate_interval])) by (route, method)",
+          "expr": "sum(rate({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\"}[$__rate_interval])) by (route, method)",
           "refId": "rate",
           "format": "table",
           "instant": true
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate({__name__=~\".+_http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, route, method))",
+          "expr": "histogram_quantile(0.95, sum(rate({__name__=~\"(.*_)?http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, route, method))",
           "refId": "p95",
           "format": "table",
           "instant": true
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate({__name__=~\".+_http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, route, method))",
+          "expr": "histogram_quantile(0.99, sum(rate({__name__=~\"(.*_)?http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, route, method))",
           "refId": "p99",
           "format": "table",
           "instant": true
@@ -246,7 +246,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase({__name__=~\".+_http_requests_total\", service=~\"$service\"}[5m])) by (status_code)",
+          "expr": "sum(increase({__name__=~\"(.*_)?http_requests_total\", service=~\"$service\"}[5m])) by (status_code)",
           "legendFormat": "{{status_code}}",
           "refId": "A",
           "instant": true
@@ -280,7 +280,7 @@
       },
       "targets": [
         {
-          "expr": "topk(5, histogram_quantile(0.95, sum(rate({__name__=~\".+_http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, route)))",
+          "expr": "topk(5, histogram_quantile(0.95, sum(rate({__name__=~\"(.*_)?http_request_duration_seconds_bucket\", service=~\"$service\"}[$__rate_interval])) by (le, route)))",
           "legendFormat": "{{route}}",
           "refId": "A",
           "instant": true
@@ -296,11 +296,11 @@
       {
         "current": { "selected": true, "text": "All", "value": "$__all" },
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "definition": "label_values({__name__=~\".+_http_requests_total\"}, service)",
+        "definition": "label_values({__name__=~\"(.*_)?http_requests_total\"}, service)",
         "includeAll": true,
         "multi": true,
         "name": "service",
-        "query": { "query": "label_values({__name__=~\".+_http_requests_total\"}, service)", "refId": "StandardVariableQuery" },
+        "query": { "query": "label_values({__name__=~\"(.*_)?http_requests_total\"}, service)", "refId": "StandardVariableQuery" },
         "refresh": 2,
         "type": "query"
       }

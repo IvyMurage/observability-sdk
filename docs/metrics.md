@@ -9,6 +9,7 @@ This guide covers how to collect, expose, and visualize metrics with the `@brdrw
 - [Exemplars (metrics to traces)](#exemplars-metrics--traces)
 - [Metrics configuration](#metrics-configuration)
 - [Prometheus scraping](#prometheus-scraping)
+- [Kubernetes ServiceMonitor (kube-prometheus-stack)](#kubernetes-servicemonitor-kube-prometheus-stack)
 - [Grafana dashboard queries](#grafana-dashboard-queries)
 
 ---
@@ -345,6 +346,262 @@ curl http://localhost:3000/metrics
 
 # Check that Prometheus is scraping successfully
 curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health: .health}'
+```
+
+---
+
+## Kubernetes ServiceMonitor (kube-prometheus-stack)
+
+On Kubernetes with [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack), Prometheus discovers scrape targets through **ServiceMonitor** CRDs — not `prometheus.yml`. If your service is running on K8s and Prometheus isn't scraping it, this is what you need.
+
+### Why your service doesn't appear in Grafana
+
+Common symptom: Grafana dashboard shows Prometheus internal metrics (`prometheus-kube-*`) but not your application service. This happens because:
+
+1. **Prometheus uses the operator pattern** — it only scrapes targets that have a matching ServiceMonitor (or PodMonitor)
+2. **No ServiceMonitor exists** — the kube-prometheus-stack Helm install creates monitors for its own components but not your application services
+3. **Your service exposes `/metrics` correctly** but Prometheus doesn't know where to find it
+
+### Prerequisites
+
+Before creating a ServiceMonitor, verify your service has:
+
+1. **A Kubernetes Service** with a named port:
+   ```bash
+   kubectl get svc <service-name> -n <namespace> -o yaml
+   ```
+   The service must have a named port (e.g., `http`) that points to the metrics endpoint.
+
+2. **Labels on the Service** — the ServiceMonitor uses label selectors to find which Service to scrape:
+   ```bash
+   kubectl get svc <service-name> -n <namespace> --show-labels
+   ```
+
+3. **The metrics endpoint working** — verify the pod actually exposes metrics:
+   ```bash
+   kubectl port-forward svc/<service-name> -n <namespace> 8080:8080
+   curl http://localhost:8080/metrics
+   ```
+
+4. **Prometheus operator's selector label** — check what label Prometheus requires on ServiceMonitors:
+   ```bash
+   kubectl get prometheus -n observability -o yaml | grep -A5 "serviceMonitorSelector"
+   ```
+   BRD's kube-prometheus-stack requires `release: prometheus` on all ServiceMonitors.
+
+### Creating a ServiceMonitor
+
+A ServiceMonitor tells the Prometheus operator: "scrape the `/metrics` endpoint of the Service matching these labels, in this namespace."
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: authentication-service         # descriptive name
+  namespace: observability             # where Prometheus runs
+  labels:
+    release: prometheus                # REQUIRED — must match Prometheus operator's serviceMonitorSelector
+    app: authentication-service        # informational
+spec:
+  namespaceSelector:
+    matchNames:
+      - tugane-sit                     # namespace where your service runs
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: authentication-service-sit  # must match a label on your K8s Service
+  endpoints:
+    - port: http                       # must match the named port on your K8s Service
+      path: /metrics                   # SDK default metrics endpoint
+      interval: 15s                    # how often Prometheus scrapes (15s recommended)
+```
+
+Apply it:
+
+```bash
+kubectl apply -f servicemonitor-authentication.yaml
+```
+
+### ServiceMonitor field reference
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `metadata.namespace` | Yes | Put in same namespace as Prometheus (`observability`) or in the service's namespace — both work if `serviceMonitorNamespaceSelector: {}` |
+| `metadata.labels.release` | Yes | Must match the Prometheus operator's `serviceMonitorSelector.matchLabels`. For BRD: `release: prometheus` |
+| `spec.namespaceSelector.matchNames` | Yes | List of namespaces where the target Service lives |
+| `spec.selector.matchLabels` | Yes | Label selector that matches the Kubernetes Service (not the Pod) |
+| `spec.endpoints[].port` | Yes | Named port from the Service spec (e.g., `http`). Must match exactly |
+| `spec.endpoints[].path` | No | Defaults to `/metrics`. Set if your SDK uses a custom endpoint |
+| `spec.endpoints[].interval` | No | Scrape interval. Defaults to Prometheus global (usually 30s). 15s recommended for production services |
+| `spec.endpoints[].scrapeTimeout` | No | Timeout for each scrape. Defaults to 10s. Increase if `/metrics` is slow |
+
+### Template for any BRD service
+
+Replace the placeholder values for each service you onboard:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: <SERVICE_NAME>
+  namespace: observability
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - <SERVICE_NAMESPACE>
+  selector:
+    matchLabels:
+      <SERVICE_LABEL_KEY>: <SERVICE_LABEL_VALUE>
+  endpoints:
+    - port: <NAMED_PORT>
+      path: /metrics
+      interval: 15s
+```
+
+To find the values you need:
+
+```bash
+# 1. Get service labels and port names
+kubectl get svc <service-name> -n <namespace> -o yaml
+
+# 2. Look for:
+#    metadata.labels → use one as selector.matchLabels
+#    spec.ports[].name → use as endpoints[].port
+```
+
+### Verifying Prometheus discovered your service
+
+After applying the ServiceMonitor, wait 30-60 seconds for the Prometheus operator to reconcile, then:
+
+**Option 1 — Prometheus targets page (recommended):**
+
+```bash
+kubectl port-forward -n observability svc/prometheus-kube-prometheus-prometheus 9090:9090
+```
+
+Open `http://localhost:9090/targets` → look for `serviceMonitor/observability/<service-name>`. Status should be `UP`.
+
+**Option 2 — Prometheus API:**
+
+```bash
+curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.service == "authentication-service") | {job: .labels.job, health: .health, lastScrape: .lastScrape}'
+```
+
+**Option 3 — Query a metric directly:**
+
+```bash
+curl -s 'http://localhost:9090/api/v1/query?query=up{job=~".*authentication.*"}' | jq '.data.result'
+```
+
+**Option 4 — Grafana dashboard:**
+
+Open your Service Overview (RED) or Node.js Runtime dashboard → check the `service` dropdown. Your service name (e.g., `authentication-service`) should appear.
+
+### Adding ServiceMonitors for all BRD services
+
+Each service that has the SDK installed and is deployed on K8s needs its own ServiceMonitor. Here are the 11 BRD services:
+
+| Service | Namespace | SDK Installed | ServiceMonitor Needed |
+|---------|-----------|---------------|----------------------|
+| api-gateway | tugane-sit | Yes | Yes |
+| authentication | tugane-sit | Yes | Yes |
+| access-management | tugane-sit | Yes | Yes |
+| application | tugane-sit | Yes | Yes |
+| product | tugane-sit | Yes | Yes |
+| payment | tugane-sit | No (pending) | After SDK install |
+| configuration | tugane-sit | No (pending) | After SDK install |
+| mel | tugane-sit | No (pending) | After SDK install |
+| workflow | tugane-sit | No (pending) | After SDK install |
+| profile | tugane-sit | No (pending) | After SDK install |
+| uno-job-scheduler | tugane-sit | No (pending) | After SDK install |
+
+To create all at once, list the services and their labels:
+
+```bash
+# Find all services and their labels in your namespace
+kubectl get svc -n tugane-sit -o custom-columns='NAME:.metadata.name,LABELS:.metadata.labels' --no-headers
+```
+
+### Troubleshooting ServiceMonitor issues
+
+**ServiceMonitor created but target not appearing:**
+
+1. **Missing `release: prometheus` label** — most common. Prometheus operator ignores ServiceMonitors without it:
+   ```bash
+   kubectl get servicemonitor <name> -n observability -o yaml | grep -A2 "labels:"
+   ```
+
+2. **Label selector mismatch** — the `selector.matchLabels` must match a label on the Kubernetes Service, not the Pod:
+   ```bash
+   # Check Service labels (this is what selector matches against)
+   kubectl get svc <service> -n <namespace> --show-labels
+
+   # NOT Pod labels (common mistake)
+   kubectl get pods -n <namespace> --show-labels
+   ```
+
+3. **Port name mismatch** — `endpoints[].port` must exactly match `spec.ports[].name` on the Service:
+   ```bash
+   kubectl get svc <service> -n <namespace> -o jsonpath='{.spec.ports[*].name}'
+   ```
+
+4. **Wrong namespace** — check `namespaceSelector.matchNames` points to correct namespace:
+   ```bash
+   kubectl get svc -A | grep <service>
+   ```
+
+5. **Prometheus not watching namespace** — check Prometheus allows all namespaces:
+   ```bash
+   kubectl get prometheus -n observability -o yaml | grep -A2 "serviceMonitorNamespaceSelector"
+   ```
+   `serviceMonitorNamespaceSelector: {}` means "all namespaces" (BRD default).
+
+6. **Service has no matching pods** — the Service selector might not match any running pods:
+   ```bash
+   kubectl get endpoints <service> -n <namespace>
+   ```
+   If endpoints are empty, no pods match the Service selector.
+
+**Target appears but shows `DOWN`:**
+
+1. The pod is crashing or not exposing `/metrics`:
+   ```bash
+   kubectl logs <pod> -n <namespace> --tail=20
+   ```
+
+2. Firewall or NetworkPolicy blocking Prometheus from reaching the service:
+   ```bash
+   # Test from Prometheus pod
+   kubectl exec -it prometheus-prometheus-kube-prometheus-prometheus-0 -n observability -- \
+     wget -q -O- http://<service>.<namespace>.svc.cluster.local:<port>/metrics | head -5
+   ```
+
+3. The SDK's `metrics.enabled` is set to `false` in the service config.
+
+### PodMonitor alternative
+
+If your service doesn't have a Kubernetes Service (e.g., a standalone job or CronJob), use a PodMonitor instead:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: batch-job
+  namespace: observability
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - tugane-sit
+  selector:
+    matchLabels:
+      app: batch-job
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
 ```
 
 ---
