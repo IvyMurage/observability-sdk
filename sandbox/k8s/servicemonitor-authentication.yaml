@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: authentication-service
+  namespace: observability
+  labels:
+    release: prometheus
+    app: authentication-service
+spec:
+  namespaceSelector:
+    matchNames:
+      - tugane-sit
+  selector:
+    matchLabels:
+      app: authentication-service
+  endpoints:
+    - port: http
+      path: /api/metrics
+      interval: 15s
+      scrapeTimeout: 10s
