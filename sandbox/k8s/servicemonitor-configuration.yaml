@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: configuration-microservice
+  namespace: observability
+  labels:
+    release: prometheus
+    app: configuration-microservice
+spec:
+  namespaceSelector:
+    matchNames:
+      - tugane-sit
+  selector:
+    matchLabels:
+      app: configuration-microservice
+  endpoints:
+    - port: http
+      path: /api/metrics
+      interval: 15s
+      scrapeTimeout: 10s
