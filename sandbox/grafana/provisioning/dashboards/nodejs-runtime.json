@@ -24,12 +24,12 @@
       },
       "targets": [
         {
-          "expr": "{__name__=~\".+_nodejs_heap_size_used_bytes\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_heap_size_used_bytes\", service=~\"$service\"}",
           "legendFormat": "{{service}} used",
           "refId": "A"
         },
         {
-          "expr": "{__name__=~\".+_nodejs_heap_size_total_bytes\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_heap_size_total_bytes\", service=~\"$service\"}",
           "legendFormat": "{{service}} total",
           "refId": "B"
         }
@@ -55,12 +55,12 @@
       },
       "targets": [
         {
-          "expr": "rate({__name__=~\".+_process_cpu_user_seconds_total\", service=~\"$service\"}[$__rate_interval])",
+          "expr": "rate({__name__=~\"(.*_)?process_cpu_user_seconds_total\", service=~\"$service\"}[$__rate_interval])",
           "legendFormat": "{{service}} user",
           "refId": "A"
         },
         {
-          "expr": "rate({__name__=~\".+_process_cpu_system_seconds_total\", service=~\"$service\"}[$__rate_interval])",
+          "expr": "rate({__name__=~\"(.*_)?process_cpu_system_seconds_total\", service=~\"$service\"}[$__rate_interval])",
           "legendFormat": "{{service}} system",
           "refId": "B"
         }
@@ -85,17 +85,17 @@
       },
       "targets": [
         {
-          "expr": "{__name__=~\".+_nodejs_eventloop_lag_p50_seconds\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_eventloop_lag_p50_seconds\", service=~\"$service\"}",
           "legendFormat": "{{service}} p50",
           "refId": "A"
         },
         {
-          "expr": "{__name__=~\".+_nodejs_eventloop_lag_p99_seconds\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_eventloop_lag_p99_seconds\", service=~\"$service\"}",
           "legendFormat": "{{service}} p99",
           "refId": "B"
         },
         {
-          "expr": "{__name__=~\".+_nodejs_eventloop_lag_mean_seconds\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_eventloop_lag_mean_seconds\", service=~\"$service\"}",
           "legendFormat": "{{service}} mean",
           "refId": "C"
         }
@@ -120,12 +120,12 @@
       },
       "targets": [
         {
-          "expr": "{__name__=~\".+_nodejs_active_handles_total\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_active_handles_total\", service=~\"$service\"}",
           "legendFormat": "{{service}} handles",
           "refId": "A"
         },
         {
-          "expr": "{__name__=~\".+_nodejs_active_requests_total\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_active_requests_total\", service=~\"$service\"}",
           "legendFormat": "{{service}} requests",
           "refId": "B"
         }
@@ -150,12 +150,12 @@
       },
       "targets": [
         {
-          "expr": "{__name__=~\".+_process_resident_memory_bytes\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?process_resident_memory_bytes\", service=~\"$service\"}",
           "legendFormat": "{{service}} RSS",
           "refId": "A"
         },
         {
-          "expr": "{__name__=~\".+_nodejs_external_memory_bytes\", service=~\"$service\"}",
+          "expr": "{__name__=~\"(.*_)?nodejs_external_memory_bytes\", service=~\"$service\"}",
           "legendFormat": "{{service}} external",
           "refId": "B"
         }
@@ -180,7 +180,7 @@
       },
       "targets": [
         {
-          "expr": "rate({__name__=~\".+_nodejs_gc_duration_seconds_sum\", service=~\"$service\"}[$__rate_interval])",
+          "expr": "rate({__name__=~\"(.*_)?nodejs_gc_duration_seconds_sum\", service=~\"$service\"}[$__rate_interval])",
           "legendFormat": "{{service}} {{kind}}",
           "refId": "A"
         }
@@ -210,7 +210,7 @@
       },
       "targets": [
         {
-          "expr": "time() - {__name__=~\".+_process_start_time_seconds\", service=~\"$service\"}",
+          "expr": "time() - {__name__=~\"(.*_)?process_start_time_seconds\", service=~\"$service\"}",
           "legendFormat": "{{service}}",
           "refId": "A",
           "instant": true
@@ -226,11 +226,11 @@
       {
         "current": { "selected": true, "text": "All", "value": "$__all" },
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "definition": "label_values({__name__=~\".+_nodejs_heap_size_used_bytes\"}, service)",
+        "definition": "label_values({__name__=~\"(.*_)?nodejs_heap_size_used_bytes\"}, service)",
         "includeAll": true,
         "multi": true,
         "name": "service",
-        "query": { "query": "label_values({__name__=~\".+_nodejs_heap_size_used_bytes\"}, service)", "refId": "StandardVariableQuery" },
+        "query": { "query": "label_values({__name__=~\"(.*_)?nodejs_heap_size_used_bytes\"}, service)", "refId": "StandardVariableQuery" },
         "refresh": 2,
         "type": "query"
       }

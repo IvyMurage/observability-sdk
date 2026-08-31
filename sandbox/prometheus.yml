@@ -21,22 +21,26 @@ scrape_configs:
       - targets: ["localhost:8889"]
 
   - job_name: "api-gateway"
-    metrics_path: /metrics
+    metrics_path: /api/metrics
     static_configs:
       - targets: ["localhost:7070"]
 
   - job_name: "authentication-service"
-    metrics_path: /metrics
+    metrics_path: /api/metrics
     static_configs:
       - targets: ["localhost:9001"]
 
   - job_name: "application-service"
-    metrics_path: /metrics
+    metrics_path: /api/metrics
     static_configs:
       - targets: ["localhost:9004"]
 
-
   - job_name: "access-management-service"
-    metrics_path: /metrics
+    metrics_path: /api/metrics
     static_configs:
       - targets: ["localhost:9000"]
+
+  - job_name: "configuration-service"
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["localhost:8080"]
