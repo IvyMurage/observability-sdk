@@ -63,6 +63,8 @@ export function resolveConfig(config: ObservabilityConfig): ResolvedConfig {
         environment,
         ...config.metrics?.labels,
       },
+      httpClientMetrics: config.metrics?.httpClientMetrics ?? true,
+      dbQueryMetrics: config.metrics?.dbQueryMetrics ?? true,
     },
 
     health: {

@@ -38,6 +38,8 @@ export { Span } from './nestjs/span.decorator';
 
 // Metrics
 export { ObservabilityMetrics } from './metrics/metrics.service';
+export { CacheMetricsService } from './metrics/cache-metrics.service';
+export type { CacheLike } from './metrics/cache-metrics.service';
 
 // Instrumentations
 export { httpInstrumentation } from './instrumentations/http';

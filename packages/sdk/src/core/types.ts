@@ -53,6 +53,11 @@ export interface MetricsConfig {
   defaultMetrics?: boolean;
   endpoint?: string;
   labels?: Record<string, string>;
+
+  /** Auto-record Prometheus metrics for outgoing HTTP requests (requires httpInstrumentation + tracing). Default: true */
+  httpClientMetrics?: boolean;
+  /** Auto-record Prometheus metrics for database queries (requires sequelizeInstrumentation/pgInstrumentation + tracing). Default: true */
+  dbQueryMetrics?: boolean;
 }
 
 export interface HealthConfig {

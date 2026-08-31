@@ -16,6 +16,9 @@ coverage/
 *.p12
 credentials*.json
 
+# SDK tarballs
+*.tgz
+
 # OS
 .DS_Store
 Thumbs.db
