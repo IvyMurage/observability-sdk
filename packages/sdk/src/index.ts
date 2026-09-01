@@ -55,6 +55,8 @@ export type { ParsedQuery } from './instrumentations/query-sanitizer';
 
 // Security
 export { sanitizeHeaders, DEFAULT_REDACTION_PATHS } from './security/redaction';
+export { createCorsOptions } from './security/cors';
+export type { CorsFactoryOptions, CorsResult } from './security/cors';
 
 // Health & Diagnostics
 export { DiagnosticsService } from './diagnostics/diagnostics.service';

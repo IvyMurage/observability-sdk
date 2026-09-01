@@ -95,6 +95,19 @@ ObservabilityModule.forRoot({
 
 Set `false` to opt out. `CacheMetricsService` is always opt-in via DI injection.
 
+#### CORS Helper
+
+New `createCorsOptions()` factory — ensures Prometheus scrapes, k8s probes, and health checks are never blocked by CORS middleware.
+
+```typescript
+import { createCorsOptions } from '@ivymurage/observability';
+
+const whitelist = process.env.CORS_ORIGIN_WHITELIST?.split(';') ?? [];
+app.enableCors(createCorsOptions(whitelist));
+```
+
+Replaces the manual `!origin` CORS fix that each service had to add individually. Uses `Set` for O(1) origin lookup.
+
 ### Architecture
 
 All three capabilities follow the same pattern:
