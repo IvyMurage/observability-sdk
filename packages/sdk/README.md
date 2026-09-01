@@ -79,13 +79,18 @@ async doWork() {
   - [Configuration options](#configuration-options)
 - **Part 7: Migration guide**
   - [Migrating from Winston / Morgan / custom loggers](#migrating-from-winston--morgan--custom-loggers)
-- **Part 8: Configuration reference**
+- **Part 8: Operational metrics (v1.1.0)**
+  - [Outgoing HTTP metrics](#outgoing-http-metrics)
+  - [DB query metrics](#db-query-metrics)
+  - [Cache metrics](#cache-metrics)
+  - [CORS helper](#cors-helper)
+- **Part 9: Configuration reference**
   - [Full configuration](#full-configuration)
   - [Tracing configuration](#tracing-configuration)
   - [Process error handlers configuration](#process-error-handlers-configuration)
   - [Available instrumentations](#available-instrumentations)
   - [Microservice setup checklist](#microservice-setup-checklist)
-- **Part 9: Reference**
+- **Part 10: Reference**
   - [Exports](#exports)
   - [Installation](#installation)
   - [Standalone mode (pure Node.js / Express / Fastify)](#standalone-mode-pure-nodejs--express--fastify)
@@ -104,6 +109,10 @@ async doWork() {
 | Request context | Request ID, correlation ID via AsyncLocalStorage | automatic |
 | Error classification | Smart extraction with log levels (4xx=warn, 5xx=error) | automatic |
 | Metric exemplars | Histogram observations carry `trace_id` for metrics→traces correlation | automatic |
+| Outgoing HTTP metrics | Auto counter + histogram for all outgoing HTTP requests | automatic (v1.1.0) |
+| DB query metrics | Auto histogram + error counter for database queries | automatic (v1.1.0) |
+| Cache metrics | Hit/miss counters + latency histogram for Redis cache | `CacheMetricsService` (v1.1.0) |
+| CORS helper | Prometheus-safe CORS that allows server-to-server requests | `createCorsOptions()` (v1.1.0) |
 
 Every log line automatically includes `trace_id`, `request_id`, `correlation_id`, and `span_id`.
 
@@ -801,7 +810,135 @@ this.logger.info('doing work');
 
 ---
 
-# Part 8: Configuration reference
+# Part 8: Operational metrics (v1.1.0)
+
+The SDK auto-provides inbound HTTP metrics. v1.1.0 adds three more layers — outgoing HTTP, database queries, and cache — that fire automatically with zero (or minimal) app code changes.
+
+## Outgoing HTTP metrics
+
+**Zero app code needed.** When `httpInstrumentation()` is configured and tracing is enabled, the SDK automatically records Prometheus metrics for every outgoing HTTP request your service makes (Axios, node-fetch, http.request — any Node.js HTTP client).
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `{prefix}_outgoing_http_requests_total` | Counter | `target_host`, `method`, `status_code` |
+| `{prefix}_outgoing_http_duration_seconds` | Histogram | `target_host`, `method`, `status_code` |
+
+Both include `trace_id` exemplars — click a data point in Grafana to jump to the exact trace.
+
+### What it answers
+
+- Which downstream service is failing? → `rate(outgoing_http_requests_total{status_code=~"5.."}[5m])`
+- Which downstream service is slow? → `histogram_quantile(0.95, rate(outgoing_http_duration_seconds_bucket[5m]))`
+- Are timeouts increasing? → `rate(outgoing_http_requests_total{status_code="504"}[5m])`
+
+### Configuration
+
+Enabled by default. To disable:
+
+```typescript
+ObservabilityModule.forRoot({
+  serviceName: 'my-service',
+  metrics: { httpClientMetrics: false },
+})
+```
+
+## DB query metrics
+
+**Zero app code needed.** When `sequelizeInstrumentation()`, `pgInstrumentation()`, or `mysqlInstrumentation()` is configured and tracing is enabled, the SDK automatically records Prometheus metrics for every database query.
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `{prefix}_db_query_duration_seconds` | Histogram | `operation`, `table` |
+| `{prefix}_db_query_errors_total` | Counter | `operation`, `table` |
+
+The `operation` label normalizes Sequelize ORM methods to standard SQL:
+- `findAll`, `findOne`, `count` → `SELECT`
+- `create`, `bulkCreate` → `INSERT`
+- `destroy` → `DELETE`
+- `update` → `UPDATE`
+
+### What it answers
+
+- Is the database slow? → `histogram_quantile(0.95, rate(db_query_duration_seconds_bucket[5m]))`
+- Which table is the bottleneck? → filter by `table` label
+- Read vs write latency? → filter by `operation` label
+- Did a deploy cause a query regression? → compare time ranges in Grafana
+
+### Configuration
+
+Enabled by default. To disable:
+
+```typescript
+ObservabilityModule.forRoot({
+  serviceName: 'my-service',
+  metrics: { dbQueryMetrics: false },
+})
+```
+
+## Cache metrics
+
+**Minimal code change** — replace `cache.get()` with `cacheMetrics.get(cache, key, 'operation')`. The `CacheMetricsService` is injected via NestJS DI.
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `{prefix}_cache_hits_total` | Counter | `operation` |
+| `{prefix}_cache_misses_total` | Counter | `operation` |
+| `{prefix}_cache_operation_duration_seconds` | Histogram | `operation`, `result` |
+
+### Usage
+
+```typescript
+import { CacheMetricsService } from '@ivymurage/observability';
+
+@Injectable()
+export class ConfigService {
+  constructor(
+    @Inject(CACHE_MANAGER) private cache: Cache,
+    private cacheMetrics: CacheMetricsService,
+  ) {}
+
+  async getConfig(key: string) {
+    // Tracks hit/miss automatically
+    const cached = await this.cacheMetrics.get(this.cache, key, 'config');
+    if (cached) return cached;
+
+    const fresh = await this.fetchFromDb(key);
+    await this.cacheMetrics.set(this.cache, key, fresh, 300, 'config');
+    return fresh;
+  }
+}
+```
+
+### What it answers
+
+- Is caching working? → `cache_hits_total / (cache_hits_total + cache_misses_total)`
+- Did cache go cold after deploy? → miss rate spike visible on dashboard
+- Is Redis slow? → `histogram_quantile(0.99, rate(cache_operation_duration_seconds_bucket[5m]))`
+
+## CORS helper
+
+Prometheus, k8s probes, and health checks send requests without an `Origin` header. Default CORS middleware blocks these with 500 errors. The SDK provides `createCorsOptions()` to fix this across all services:
+
+```typescript
+import { createCorsOptions } from '@ivymurage/observability';
+
+const whitelist = process.env.CORS_ORIGIN_WHITELIST?.split(';') ?? [];
+app.enableCors(createCorsOptions(whitelist));
+```
+
+Replaces the manual `!origin` fix that each service had to add individually. Uses `Set` for O(1) origin lookup.
+
+```typescript
+// Optional: customize methods and credentials
+app.enableCors(createCorsOptions(whitelist, {
+  methods: 'GET,POST',
+  credentials: false,
+}));
+```
+
+---
+
+# Part 9: Configuration reference
 
 ## Full configuration
 
@@ -838,6 +975,8 @@ ObservabilityModule.forRoot({
     prefix: 'myservice',           // metric name prefix
     defaultMetrics: true,           // Node.js process metrics
     labels: { team: 'platform' },
+    httpClientMetrics: true,        // outgoing HTTP metrics (v1.1.0)
+    dbQueryMetrics: true,           // DB query metrics (v1.1.0)
   },
 
   instrumentations: [ /* ... */ ],
@@ -1020,7 +1159,7 @@ tracing: {
 
 ---
 
-# Part 9: Reference
+# Part 10: Reference
 
 ## Exports
 
@@ -1051,6 +1190,8 @@ tracing: {
 | `setupProcessErrorHandlers` | Function | Catch bootstrap crashes as structured JSON |
 | `setupTracing` | Function | Early tracing init (before NestJS bootstrap) |
 | `sanitizeHeaders` | Function | Redact sensitive header values |
+| `CacheMetricsService` | Injectable Service | Cache hit/miss Prometheus metrics (v1.1.0) |
+| `createCorsOptions` | Function | Prometheus-safe CORS options factory (v1.1.0) |
 
 ## Installation
 
