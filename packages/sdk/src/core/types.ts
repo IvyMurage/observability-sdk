@@ -79,6 +79,27 @@ export interface RequestContext {
   [key: string]: unknown;
 }
 
+// ─── Domain Events ───────────────────────────────────────────────
+
+export type ActorType = 'user' | 'system' | 'scheduler' | 'external';
+
+export interface DomainEventOptions {
+  /** The business entity type (e.g. 'tender', 'payment', 'bid') */
+  entity_type: string;
+  /** The specific entity instance ID (e.g. 'TND-2026-0042') */
+  entity_id: string;
+  /** Who/what triggered this event */
+  actor_type?: ActorType;
+  /** Identifier of the actor (user ID, system name) */
+  actor_id?: string;
+  /** Override log level (default: 'info') */
+  level?: LogLevel;
+  /** Domain-specific context for troubleshooting */
+  metadata?: Record<string, unknown>;
+}
+
+// ─── Instrumentation ─────────────────────────────────────────────
+
 export interface InstrumentationPlugin {
   name: string;
   otelInstrumentation?(): Instrumentation | Instrumentation[] | null;

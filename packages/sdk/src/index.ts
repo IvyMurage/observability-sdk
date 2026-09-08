@@ -15,6 +15,8 @@ export type {
   RequestContext,
   InstrumentationPlugin,
   LogLevel,
+  DomainEventOptions,
+  ActorType,
 } from './core/types';
 
 // Constants
