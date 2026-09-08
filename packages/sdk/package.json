@@ -6,9 +6,6 @@
     "type": "git",
     "url": "https://github.com/brdbank/observability-sdk.git"
   },
-  "contributors": [
-    "ivy.murage@wiredin.rw"
-  ],
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"

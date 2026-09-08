@@ -13,11 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Controller and handler names in request lifecycle logs
 - Consistent `request_start` / `request_complete` / `request_error` message format
 
-## [1.0.3] - 2026-09-02
-
-### Fixed
-- Republish with correct build artifacts (v1.0.2 published before `npm run build`)
-
 ## [1.0.2] - 2026-09-02
 
 ### Added
