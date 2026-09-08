@@ -13,11 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Controller and handler names in request lifecycle logs
 - Consistent `request_start` / `request_complete` / `request_error` message format
 
-## [1.0.4] - 2026-09-03
-
-### Fixed
-- Added `pino-opentelemetry-transport` to `dependencies` — was referenced in code but missing from `package.json`, causing `unable to determine transport target` runtime error
-
 ## [1.0.3] - 2026-09-02
 
 ### Fixed
