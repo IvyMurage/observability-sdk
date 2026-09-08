@@ -62,18 +62,12 @@ services:
       - "3200:3200"   # Tempo HTTP
       - "9095:9095"   # Tempo gRPC
 
-  # Fallback log pipeline: reads PM2 log files, ships to Loki with pipeline="file" label
-  # Primary pipeline is SDK → OTLP → OTEL Collector → Loki (pipeline="otlp")
-  alloy:
-    image: grafana/alloy:v1.3.1
+  promtail:
+    image: grafana/promtail:2.9.6
     volumes:
-      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - ~/.pm2/logs:/pm2-logs:ro
-    command:
-      - run
-      - /etc/alloy/config.alloy
-    ports:
-      - "12345:12345"   # Alloy UI
+      - ./promtail/config.yaml:/etc/promtail/config.yaml:ro
+      - ~/.pm2/logs:/var/log/pm2:ro
+    command: -config.file=/etc/promtail/config.yaml
     depends_on:
       - loki
 

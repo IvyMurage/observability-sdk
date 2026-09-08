@@ -6,9 +6,6 @@
     "type": "git",
     "url": "https://github.com/brdbank/observability-sdk.git"
   },
-  "contributors": [
-    "ivy.murage@wiredin.rw"
-  ],
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"
@@ -49,7 +46,6 @@
     "@opentelemetry/sdk-trace-node": "^2.8.0",
     "@opentelemetry/semantic-conventions": "^1.25.0",
     "pino": "^9.0.0",
-    "pino-opentelemetry-transport": "^0.6.0",
     "prom-client": "^15.0.0"
   },
   "peerDependencies": {

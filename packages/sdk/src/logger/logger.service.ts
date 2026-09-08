@@ -7,11 +7,7 @@ export class ObservabilityLogger {
   private pino: pino.Logger;
 
   constructor(private config: ResolvedConfig) {
-    this.pino = this.createLogger(config);
-  }
-
-  private createLogger(config: ResolvedConfig): pino.Logger {
-    const baseOptions: pino.LoggerOptions = {
+    this.pino = pino({
       name: config.serviceName,
       level: config.logger.level,
       redact: {
@@ -30,76 +26,10 @@ export class ObservabilityLogger {
           return { level: label };
         },
       },
-    };
-
-    const transport = this.buildTransport(config);
-    if (!transport) return pino(baseOptions);
-
-    try {
-      const logger = pino({ ...baseOptions, transport });
-
-      // Listen for worker thread errors — if OTLP transport crashes,
-      // fall back to stdout-only logger instead of taking down the service
-      const dest = (logger as unknown as Record<symbol, NodeJS.WritableStream>)[pino.symbols.streamSym];
-      if (dest?.on) {
-        dest.on('error', (err: Error) => {
-          console.error(`[observability] Transport worker error, falling back to stdout: ${err.message}`);
-          this.pino = pino(baseOptions);
-        });
-      }
-
-      return logger;
-    } catch (err) {
-      console.error(`[observability] Failed to init transport, falling back to stdout: ${(err as Error).message}`);
-      return pino(baseOptions);
-    }
-  }
-
-  /**
-   * Resolve transport module to absolute path so Pino's worker thread
-   * can find it — worker thread resolution differs from main thread and
-   * fails to locate transitive dependencies by package name alone.
-   */
-  private resolveTransport(name: string): string {
-    try {
-      return require.resolve(name);
-    } catch {
-      return name; // fall back to name, let Pino try
-    }
-  }
-
-  private buildTransport(config: ResolvedConfig): pino.TransportSingleOptions | pino.TransportMultiOptions | undefined {
-    const targets: pino.TransportTargetOptions[] = [];
-
-    if (config.logger.otlpExport) {
-      targets.push({
-        target: this.resolveTransport('pino-opentelemetry-transport'),
-        options: {
-          resourceAttributes: {
-            'service.name': config.serviceName,
-            'deployment.environment': config.environment,
-            'service.version': config.version,
-            'log.pipeline': 'otlp',
-          },
-        },
-      });
-    }
-
-    if (config.logger.prettyPrint) {
-      targets.push({
-        target: this.resolveTransport('pino-pretty'),
-        options: { colorize: true },
-      });
-    }
-
-    // No transports — write to stdout directly (fastest)
-    if (targets.length === 0) return undefined;
-
-    // Single transport
-    if (targets.length === 1) return { target: targets[0].target, options: targets[0].options };
-
-    // Multiple transports
-    return { targets };
+      transport: config.logger.prettyPrint
+        ? { target: 'pino-pretty', options: { colorize: true } }
+        : undefined,
+    });
   }
 
   debug(message: string, meta?: Record<string, unknown>): void {

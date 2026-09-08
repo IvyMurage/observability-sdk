@@ -20,8 +20,6 @@ export interface ObservabilityConfig {
 export interface LoggerConfig {
   level?: LogLevel;
   prettyPrint?: boolean;
-  /** Send logs to OTEL Collector via pino-opentelemetry-transport. Default: true when OTEL_EXPORTER_OTLP_ENDPOINT is set. */
-  otlpExport?: boolean;
   redaction?: RedactionConfig;
   autoRequestLogging?: boolean;
   autoErrorLogging?: boolean;
