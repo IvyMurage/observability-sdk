@@ -13,30 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Controller and handler names in request lifecycle logs
 - Consistent `request_start` / `request_complete` / `request_error` message format
 
-## [1.0.2] - 2026-09-02
-
-### Added
-- **OTEL log transport**: logs are now sent to OpenTelemetry Collector via `pino-opentelemetry-transport`, enabling structured log ingestion into Loki/Grafana with full trace correlation
-- `otlpExport` option on `LoggerConfig` — auto-enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` env var is set, can be explicitly controlled via `logger.otlpExport: true | false`
-- Multi-transport support: SDK can simultaneously write to stdout (PM2 capture) and OTEL Collector
-- `log.pipeline` resource attribute on OTLP logs for pipeline identification
-
-### Infrastructure
-- **Dual log pipeline** with deduplication support:
-  - **Primary**: SDK → OTLP → OTEL Collector → Loki (tagged `pipeline="otlp"`)
-  - **Fallback**: stdout → PM2 → log file → Grafana Alloy → Loki (tagged `pipeline="file"`)
-- Replaced Promtail with Grafana Alloy for file-based log collection — parses PM2 JSON logs, extracts `service_name`, `level`, `trace_id`
-- OTEL Collector `attributes/pipeline` processor tags all OTLP logs for deduplication
-- Loki receives both pipelines with distinct labels: query `{pipeline="otlp"}` for primary, `{pipeline="file"}` for fallback, or use Grafana's dedup feature across both
-
-### How it works
-- **Zero service-side changes** — services only need `OTEL_EXPORTER_OTLP_ENDPOINT` in `.env` (already required for tracing)
-- SDK auto-detects the env var and enables OTEL log export
-- Primary: `Service → SDK Logger → Pino → pino-opentelemetry-transport → OTEL Collector → Loki`
-- Fallback: `Service → stdout → PM2 log file → Grafana Alloy → Loki`
-- Trace correlation is automatic on OTLP pipeline — `trace_id` and `span_id` attached to every log entry
-- Fallback captures everything including `console.log`, framework logs, and non-SDK services
-
 ## [1.0.0] - 2026-06-29
 
 ### Changed

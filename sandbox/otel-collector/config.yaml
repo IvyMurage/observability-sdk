@@ -11,22 +11,12 @@ processors:
     timeout: 5s
     send_batch_size: 1024
 
-  # Tag logs coming through OTLP pipeline for deduplication with file-based fallback
-  attributes/pipeline:
-    actions:
-      - key: pipeline
-        value: otlp
-        action: upsert
-
 exporters:
   otlphttp/tempo:
     endpoint: http://tempo:4318
 
   loki:
     endpoint: http://loki:3100/loki/api/v1/push
-    default_labels_enabled:
-      exporter: false
-      job: true
 
   prometheus:
     endpoint: 0.0.0.0:8889
@@ -48,5 +38,5 @@ service:
 
     logs:
       receivers: [otlp]
-      processors: [attributes/pipeline, batch]
+      processors: [batch]
       exporters: [loki, debug]

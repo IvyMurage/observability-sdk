@@ -13,7 +13,6 @@ export function resolveConfig(config: ObservabilityConfig): ResolvedConfig {
     logger: {
       level: config.logger?.level || (isProd ? 'info' : 'debug'),
       prettyPrint: config.logger?.prettyPrint ?? !isProd,
-      otlpExport: config.logger?.otlpExport ?? !!process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
       autoRequestLogging: config.logger?.autoRequestLogging ?? true,
       autoErrorLogging: config.logger?.autoErrorLogging ?? true,
       logRequestBody: config.logger?.logRequestBody ?? false,
