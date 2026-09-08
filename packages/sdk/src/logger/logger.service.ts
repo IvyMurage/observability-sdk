@@ -7,11 +7,7 @@ export class ObservabilityLogger {
   private pino: pino.Logger;
 
   constructor(private config: ResolvedConfig) {
-    this.pino = this.createLogger(config);
-  }
-
-  private createLogger(config: ResolvedConfig): pino.Logger {
-    const baseOptions: pino.LoggerOptions = {
+    this.pino = pino({
       name: config.serviceName,
       level: config.logger.level,
       redact: {
@@ -30,42 +26,8 @@ export class ObservabilityLogger {
           return { level: label };
         },
       },
-    };
-
-    const transport = this.buildTransport(config);
-    if (!transport) return pino(baseOptions);
-
-    try {
-      const logger = pino({ ...baseOptions, transport });
-
-      // Listen for worker thread errors — if OTLP transport crashes,
-      // fall back to stdout-only logger instead of taking down the service
-      const dest = (logger as unknown as Record<symbol, NodeJS.WritableStream>)[pino.symbols.streamSym];
-      if (dest?.on) {
-        dest.on('error', (err: Error) => {
-          console.error(`[observability] Transport worker error, falling back to stdout: ${err.message}`);
-          this.pino = pino(baseOptions);
-        });
-      }
-
-      return logger;
-    } catch (err) {
-      console.error(`[observability] Failed to init transport, falling back to stdout: ${(err as Error).message}`);
-      return pino(baseOptions);
-    }
-  }
-
-  /**
-   * Resolve transport module to absolute path so Pino's worker thread
-   * can find it — worker thread resolution differs from main thread and
-   * fails to locate transitive dependencies by package name alone.
-   */
-  private resolveTransport(name: string): string {
-    try {
-      return require.resolve(name);
-    } catch {
-      return name; // fall back to name, let Pino try
-    }
+      transport: this.buildTransport(config),
+    });
   }
 
   private buildTransport(config: ResolvedConfig): pino.TransportSingleOptions | pino.TransportMultiOptions | undefined {
@@ -73,7 +35,7 @@ export class ObservabilityLogger {
 
     if (config.logger.otlpExport) {
       targets.push({
-        target: this.resolveTransport('pino-opentelemetry-transport'),
+        target: 'pino-opentelemetry-transport',
         options: {
           resourceAttributes: {
             'service.name': config.serviceName,
@@ -87,7 +49,7 @@ export class ObservabilityLogger {
 
     if (config.logger.prettyPrint) {
       targets.push({
-        target: this.resolveTransport('pino-pretty'),
+        target: 'pino-pretty',
         options: { colorize: true },
       });
     }
