@@ -14,6 +14,8 @@ Comprehensive endpoint inventory for BRD microservices — domain events, loggin
 | [Access Management](access-management.csv) | `access-management.csv` | 9 (7 HTTP + 2 SDK-provided) | ⚠️ Partial |
 | [Configuration](configuration.csv) | `configuration.csv` | 18 (16 HTTP + 2 infrastructure) | ✅ Best in fleet |
 | [Workflow](workflow.csv) | `workflow.csv` | 22 (21 HTTP + 1 health) | ❌ None |
+| [Product](product.csv) | `product.csv` | 17 (16 HTTP + 1 docs) | ❌ None (manual Trace/Span decorators only) |
+| [Profile](profile.csv) | `profile.csv` | 33 (25 HTTP + 8 Kafka) | ❌ None |
 
 ---
 
@@ -171,18 +173,132 @@ Each row is one endpoint. Key columns:
 
 ---
 
+### Product Service
+
+**Port:** env `PORT`, fallback 3000  
+**SDK:** ❌ None — Custom Winston `LoggerService` with DailyRotateFile transports + optional Kafka logging. Manual `@Trace()` / `@Span()` decorators extract `x-trace-id` / `x-span-id` headers for structured log context (no OTel spans). No prom-client. No ObservabilityModule.
+
+| Criticality | Count |
+|---|---|
+| Critical | 0 |
+| High | 6 |
+| Medium | 5 |
+| Low | 6 |
+
+| Priority | Count |
+|---|---|
+| P0 | 0 |
+| P1 | 5 |
+| P2 | 3 |
+| P3 | 9 |
+
+**Critical findings:**
+- `PATCH /api/products/:id` update body accepts `any` type — **no DTO validation**. Any field can be modified without validation, including fields that should be immutable.
+- `console.log('Invalidated cache for product:', id)` in `invalidateProductCache()` — minor data leak, but pattern indicates unstructured logging.
+- `GET /api/products/:id/projects` could **route-conflict** with `GET /api/products/:id` — both match `/:id` segment, resolution depends on NestJS module import order.
+- Redis caching is **commented out** on categories and projects — inconsistent caching strategy.
+- Kafka Product.Updated event is emitted on product update (good), but no observability on emit success/failure.
+- Swagger UI (`/api-docs`) is publicly accessible — information disclosure in production.
+- Product creation auto-sets status to `'Approved'` — no approval workflow.
+
+**Discrepancies with provided CSV:**
+- CSV has no entries for product-service.
+- All 17 endpoints discovered from codebase analysis (main branch).
+
+**Migration order:**
+1. P1: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`
+2. P1: `POST /api/products` (create) — already has best logging, migrate from Winston to SDK
+3. P1: `PATCH /api/products/:id` (update) — add domain event + audit trail + typed DTO
+4. P1: `GET /api/products/:id` (fetch) — add cache hit/miss metrics + latency histogram
+5. P1: `POST /api/products/mapping` (bulk create) — add domain event + logging (currently zero)
+6. P2: Verify route conflict between `GET /api/products/:id` and `GET /api/products/:id/projects`
+7. P2: Bundle fetch/create endpoints — migrate Winston to SDK
+8. P3: Remove legacy Winston `LoggerService`, replace console.log with structured SDK logging
+9. P3: Restrict Swagger UI access in production
+
+---
+
+### Profile Service
+
+**Port:** env `PORT`, fallback 3000  
+**SDK:** ❌ None — Winston `LoggerService` exists but only used in `HttpExceptionFilter`. Morgan middleware for HTTP request logging. All business logic uses `console.log`/`console.error`/`console.warn`. No prom-client. No OTel. No ObservabilityModule.
+
+| Criticality | Count |
+|---|---|
+| Critical | 4 |
+| High | 9 |
+| Medium | 9 |
+| Low | 11 |
+
+| Priority | Count |
+|---|---|
+| P0 | 6 |
+| P1 | 8 |
+| P2 | 5 |
+| P3 | 14 |
+
+**Critical findings:**
+- **FIVE unprotected HTTP endpoints exposing PII:**
+  - `POST /api/business/create-business` — no auth, creates business records
+  - `POST /api/business/batch` — AccessGuard **commented out**, exposes business + representative PII
+  - `POST /api/profile/create-individual` — no auth, accepts extensive PII (national ID, income, DOB)
+  - `GET /api/profile/:id/customer` — no auth, **duplicate** of authenticated endpoint, exposes full customer PII
+  - These represent the **worst security posture of any service analyzed**
+- `GET /api/business/:id` makes **two external HTTP calls** to Access Control Service (government RDB registry) with **hardcoded credentials** (`ACCESS_CON_USER`/`ACCESS_CON_PASSWORD`) sent in **plaintext POST body**. Zero logging on this external integration.
+- `GET /api/profile/individual` returns **ALL customers with no pagination** — full PII dump of entire customer table.
+- **Kafka race condition / data loss:** `representative.created` handler **silently drops** representatives if business hasn't been created yet. No retry, no DLQ — representative is **permanently lost**.
+- `customer.individual.created` handler creates customers **without business association** if business doesn't exist yet — no mechanism to fix this later.
+- Redis cache module is registered globally and injected into `CustomerService` but **never actually used** (no `get`/`set`/`del` calls).
+- `console.log` statements in Kafka handlers likely **log PII** (identificationNumber, email, phone) to stdout.
+- **New: Business documents** — compliance-critical CRUD with file uploads to external server, zero logging on create/update/delete.
+- **New: Business flags** (`setBusinessFlag`) — can suspend/blacklist businesses with platform-wide impact. Has built-in audit table (BusinessFlagHistory) but zero observability layer (no logging, no metrics, no alerts).
+- **New: ApiKeyGuard** — `GET /api/business/users/list` uses API key auth (x-api-key header) instead of JWT. Throws if API_KEY env var not configured.
+
+**Discrepancies with provided CSV:**
+- CSV has no entries for profile-service.
+- All 33 endpoints (25 HTTP + 8 Kafka) discovered from codebase analysis (main branch).
+
+**Migration order:**
+1. P0: **SECURITY — immediately:** Add AccessGuard to `create-business`, `batch`, `create-individual`. Add auth or remove `GET /api/profile/:id/customer`.
+2. P0: `GET /api/business/:id` — add structured logging + latency tracking on external RDB integration. Move credentials to vault.
+3. P0: `Kafka: user.created` — replace console.log with structured SDK logging with PII redaction
+4. P0: `Kafka: representative.created` — implement retry with backoff or DLQ for missing business
+5. P0: `Kafka: customer.individual.created` — add compensation mechanism for missing business association
+6. P0: `GET /api/profile/:id/customer` — add access logging (client IP, user agent) for forensics until endpoint is secured
+7. P1: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`
+8. P1: `GET /api/profile/individual` — add pagination (returns entire customer table)
+9. P1: `PATCH /api/profile/individual/:id` — add domain event + audit trail for PII changes
+10. P1: `PATCH /api/profile/update-own-profile` — add signature upload metrics + file server latency tracking
+11. P1: Business document CRUD — add domain events + logging + file upload metrics
+12. P1: `POST /api/business-flags/businesses/:businessId` — add logging + metrics on flag changes (suspend/blacklist alerts)
+13. P1: `DELETE /api/business/business-documents` — add audit trail for compliance document deletion
+14. P2: Flag definitions CRUD — add domain events + logging
+15. P2: Customer document Kafka handlers — add domain events + logging
+16. P2: `GET /api/business/users/list` — add logging for API key auth endpoint
+17. P3: Remove unused Redis cache injection. Replace Morgan with SDK HTTP logging. Delete unused Winston LoggerService.
+
+---
+
 ## Cross-Service Observations
 
 ### Security Concerns (Flag to Team)
 
 | Issue | Service | Severity |
 |---|---|---|
-| Unauthenticated `GET /task/:taskId` exposes workflow data | workflow | High |
-| `console.log` leaks full config item payload | configuration | Medium |
+| **5 unprotected endpoints** exposing PII (create-business, batch, create-individual, /:id/customer) | profile | Critical |
+| Hardcoded credentials sent in **plaintext POST body** to government registry (RDB) | profile | Critical |
 | `.env` committed with plaintext DB password + JWT secret | access-management | Critical |
+| Unauthenticated `GET /task/:taskId` exposes workflow data | workflow | High |
+| Unauthenticated `GET /api/profile/:id/customer` exposes full customer PII (duplicate endpoint) | profile | High |
+| Force-complete bypasses approval with no extra auth check | workflow | High |
+| `GET /api/profile/individual` returns entire customer table with no pagination | profile | High |
+| Kafka `representative.created` **silently drops** representatives (permanent data loss) | profile | High |
+| `PATCH /api/products/:id` accepts `any` body — no DTO validation | product | High |
+| `console.log` leaks full config item payload | configuration | Medium |
 | BasicAuthGuard defaults to admin/password | configuration | Medium |
 | `serviceName` mismatch corrupts trace/log attribution | access-management | Medium |
-| Force-complete bypasses approval with no extra auth check | workflow | High |
+| Swagger UI publicly accessible in production | product | Medium |
+| Redis injected but never used in CustomerService | profile | Low |
 
 ### Sensitive Data — Never Log These
 
@@ -199,6 +315,13 @@ Each row is one endpoint. Key columns:
 | Basic Auth credentials | Authorization header on public endpoints |
 | Workflow task comments | May contain business-sensitive review notes |
 | Config item payloads | May contain fee structures, templates, business rules |
+| `identificationNumber` (national ID) | Customer, Representative, Business entities (profile service) |
+| `dateOfBirth`, `income`, `maritalStatus` | Customer entity (profile service) |
+| `signatureUrl` | Customer entity — biometric data (profile service) |
+| `ACCESS_CON_USER`, `ACCESS_CON_PASSWORD` | Business service → RDB government registry integration |
+| `FILE_SERVER_AUTHORIZATION` | Customer service → file server upload auth token |
+| Shareholder/board member PII | RDB government registry response (names, DOB, nationality, ID docs, addresses) |
+| Product `loanTypes`, `eligibility` payloads | May contain business-sensitive pricing parameters |
 
 ### Standard Log Fields (Every Request)
 
