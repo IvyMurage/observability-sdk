@@ -9,13 +9,27 @@ Comprehensive endpoint inventory for BRD microservices — domain events, loggin
 
 ## Spreadsheets
 
-| Service | File | Endpoints | SDK Status |
-|---|---|---|---|
-| [Access Management](access-management.csv) | `access-management.csv` | 9 (7 HTTP + 2 SDK-provided) | ⚠️ Partial |
-| [Configuration](configuration.csv) | `configuration.csv` | 18 (16 HTTP + 2 infrastructure) | ✅ Best in fleet |
-| [Workflow](workflow.csv) | `workflow.csv` | 22 (21 HTTP + 1 health) | ❌ None |
-| [Product](product.csv) | `product.csv` | 17 (16 HTTP + 1 docs) | ❌ None (manual Trace/Span decorators only) |
-| [Profile](profile.csv) | `profile.csv` | 33 (25 HTTP + 8 Kafka) | ❌ None |
+| Service | File | Endpoints | SDK Status | Branch |
+|---|---|---|---|---|
+| [Access Management](access-management.csv) | `access-management.csv` | 9 (7 HTTP + 2 SDK-provided) | ✅ Installed (v1.0.1) | `ft-observability` |
+| [Configuration](configuration.csv) | `configuration.csv` | 18 (16 HTTP + 2 infrastructure) | ✅ Installed (v1.0.1) | `ft-add-observability` |
+| [Workflow](workflow.csv) | `workflow.csv` | 22 (21 HTTP + 1 health) | ⚠️ Installed (v1.0.6 — unstable) | `ch-observability-integration` |
+| [Product](product.csv) | `product.csv` | 17 (16 HTTP + 1 docs) | ✅ Installed (v1.0.1) | `ft-observability` |
+| [Profile](profile.csv) | `profile.csv` | 33 (25 HTTP + 8 Kafka) | ✅ Installed (v1.0.1) | `ft-add-obervability` |
+
+---
+
+## SDK Installation Status
+
+All 5 services have `@brdrwanda/observability` installed and `ObservabilityModule.forRoot()` wired. Each service started fresh on a dedicated branch.
+
+| Service | Version | Branch | What's Wired | Next Step |
+|---|---|---|---|---|
+| Access Management | v1.0.1 | `ft-observability` | Module + Health + NestPinoLogger + HttpExceptionFilter | Per-endpoint domain events, metrics, logging |
+| Configuration | v1.0.1 | `ft-add-observability` | Module + Health + metrics config + outbox updates | Custom metrics, domain events |
+| Workflow | **v1.0.6** ⚠️ | `ch-observability-integration` | Module + Health + setupTracing + setupProcessErrorHandlers | **Downgrade to v1.0.1 or upgrade to v2.0.0** — v1.0.6 OTEL log transport fails in production |
+| Product | v1.0.1 | `ft-observability` | Module + Health + enhanced error handling | Remove legacy Winston/Trace/Span, add metrics |
+| Profile | v1.0.1 | `ft-add-obervability` | Module + Health | Replace console.log/Morgan, add metrics + domain events |
 
 ---
 
@@ -42,7 +56,8 @@ Each row is one endpoint. Key columns:
 ### Access Management Service
 
 **Port:** 9000 (env), fallback 3000  
-**SDK:** Partial — `ObservabilityModule` wired, `NestPinoLogger` as app logger, but Winston `LoggerService` still active in controllers. Almost all controller logging is commented out.
+**Branch:** `ft-observability`  
+**SDK:** ✅ Installed (v1.0.1) — `ObservabilityModule.forRoot()` + `ObservabilityHealthModule` wired, `NestPinoLogger` as app logger, `setupProcessErrorHandlers()` configured, `HttpExceptionFilter` uses `ObservabilityLogger`. Legacy Winston `LoggerService` still exists. Started fresh — per-endpoint domain events, metrics, and custom logging not yet implemented.
 
 | Criticality | Count |
 |---|---|
@@ -72,7 +87,7 @@ Each row is one endpoint. Key columns:
 - CSV missing: `GET /api/routes` (bulk route creation — yes, a GET that writes).
 - CSV missing: `GET /api` (smoke test).
 
-**Migration order:**
+**Migration order:** (SDK installed ✅ — next steps are per-endpoint work)
 1. P0: `POST /api/role-access` — add latency histogram + cache hit ratio + error counter
 2. P0: `PATCH /api/role-access/:roleAccessId/manage-permission` — add domain event + audit trail
 3. P1: `POST /api/role-access/:roleName/bulk/:projectId/create` — add domain event + audit
@@ -84,7 +99,8 @@ Each row is one endpoint. Key columns:
 ### Configuration Service
 
 **Port:** env `PORT`, fallback 3000  
-**SDK:** Best in fleet — `ObservabilityLogger` injected in controller with traceId/spanId/userId on every handler. Legacy Winston `LoggerService` exists but is **not used anywhere**.
+**Branch:** `ft-add-observability`  
+**SDK:** ✅ Installed (v1.0.1) — `ObservabilityModule.forRoot()` + `ObservabilityHealthModule` wired, metrics configuration added, Kafka outbox publisher updated. Had best pre-SDK logging (ObservabilityLogger in controller). Started fresh — custom metrics and domain events not yet implemented. Legacy Winston `LoggerService` exists but is not used.
 
 | Criticality | Count |
 |---|---|
@@ -112,7 +128,7 @@ Each row is one endpoint. Key columns:
 - CSV has no entries for configuration-service (only access-management and auth were in the CSV).
 - All 18 endpoints discovered from codebase analysis.
 
-**Migration order:**
+**Migration order:** (SDK installed ✅ — next steps are per-endpoint work)
 1. P1: Remove `console.log` on line 1025 (data leak), lines 1209-1210 (error handling), `http.exception.filter.ts:25,35`
 2. P1: Add domain events for create/update/delete operations
 3. P1: Add `config_item_operations_total` and `config_schema_registrations_total` metrics
@@ -126,7 +142,8 @@ Each row is one endpoint. Key columns:
 ### Workflow Service
 
 **Port:** env `PORT`, fallback 3000  
-**SDK:** ❌ None — NestJS built-in `Logger` + barely-used Winston. Zero metrics. Zero tracing. Zero structured logging.
+**Branch:** `ch-observability-integration`  
+**SDK:** ⚠️ Installed (v1.0.6 — **unstable**, OTEL log transport fails in production) — `ObservabilityModule.forRoot()` + `ObservabilityHealthModule` wired, `setupProcessErrorHandlers()` + `setupTracing()` configured. Started fresh — per-endpoint work not yet done. **Must downgrade to v1.0.1 or upgrade to v2.0.0** before going to production.
 
 | Criticality | Count |
 |---|---|
@@ -157,26 +174,28 @@ Each row is one endpoint. Key columns:
 - CSV has no entries for workflow-service.
 - All 22 endpoints discovered from codebase analysis.
 
-**Migration order:**
-1. P0: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`
-2. P0: `POST /tasks/:id/act` — add domain event `workflow.task_acted_on` + structured logging per state transition
-3. P0: `POST /instances:start` — add domain event `workflow.instance_started` + metrics
-4. P0: `POST /admin/instances/:instanceId/force-complete` — add domain event + security audit trail
-5. P0: `GET /task/:taskId` — add access logging (client IP, user agent) for unauthenticated endpoint, flag to service owner for security review
-6. P1: `POST /tasks/actions` (bulk) — add domain event with per-task result breakdown
-7. P1: Add `workflow_task_action_total`, `workflow_instances_started_total`, `workflow_instance_duration_seconds` metrics
-8. P1: Add outbox metrics: `workflow_outbox_pending` gauge, `workflow_outbox_failures_total` counter
-9. P1: Resume/reassign/cancel endpoints — add domain events
-10. P2: Fix double `/api/api` prefix, register `HttpExceptionFilter` globally
-11. P2: Populate `correlationId`/`causationId` in outbox events
-12. P3: Remove unused `JwtAuthGuard`, unused `WorkflowTasksInboxView` entity
+**Migration order:** (SDK installed ✅ on v1.0.6 — **must downgrade to v1.0.1 or upgrade to v2.0.0** before production)
+1. ~~P0: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`~~ ✅ Done
+2. P0: Fix SDK version — v1.0.6 OTEL log transport fails in production mode
+3. P0: `POST /tasks/:id/act` — add domain event `workflow.task_acted_on` + structured logging per state transition
+4. P0: `POST /instances:start` — add domain event `workflow.instance_started` + metrics
+5. P0: `POST /admin/instances/:instanceId/force-complete` — add domain event + security audit trail
+6. P0: `GET /task/:taskId` — add access logging (client IP, user agent) for unauthenticated endpoint, flag to service owner for security review
+7. P1: `POST /tasks/actions` (bulk) — add domain event with per-task result breakdown
+8. P1: Add `workflow_task_action_total`, `workflow_instances_started_total`, `workflow_instance_duration_seconds` metrics
+9. P1: Add outbox metrics: `workflow_outbox_pending` gauge, `workflow_outbox_failures_total` counter
+10. P1: Resume/reassign/cancel endpoints — add domain events
+11. P2: Fix double `/api/api` prefix, register `HttpExceptionFilter` globally
+12. P2: Populate `correlationId`/`causationId` in outbox events
+13. P3: Remove unused `JwtAuthGuard`, unused `WorkflowTasksInboxView` entity
 
 ---
 
 ### Product Service
 
 **Port:** env `PORT`, fallback 3000  
-**SDK:** ❌ None — Custom Winston `LoggerService` with DailyRotateFile transports + optional Kafka logging. Manual `@Trace()` / `@Span()` decorators extract `x-trace-id` / `x-span-id` headers for structured log context (no OTel spans). No prom-client. No ObservabilityModule.
+**Branch:** `ft-observability`  
+**SDK:** ✅ Installed (v1.0.1) — `ObservabilityModule.forRoot()` + `ObservabilityHealthModule` wired, `setupProcessErrorHandlers()` configured, enhanced error handling in controllers. Legacy Winston `LoggerService` and manual `@Trace()` / `@Span()` decorators still exist alongside SDK. Started fresh — custom metrics and domain events not yet implemented.
 
 | Criticality | Count |
 |---|---|
@@ -205,8 +224,8 @@ Each row is one endpoint. Key columns:
 - CSV has no entries for product-service.
 - All 17 endpoints discovered from codebase analysis (main branch).
 
-**Migration order:**
-1. P1: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`
+**Migration order:** (SDK installed ✅ — next steps are per-endpoint work)
+1. ~~P1: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`~~ ✅ Done
 2. P1: `POST /api/products` (create) — already has best logging, migrate from Winston to SDK
 3. P1: `PATCH /api/products/:id` (update) — add domain event + audit trail + typed DTO
 4. P1: `GET /api/products/:id` (fetch) — add cache hit/miss metrics + latency histogram
@@ -221,7 +240,8 @@ Each row is one endpoint. Key columns:
 ### Profile Service
 
 **Port:** env `PORT`, fallback 3000  
-**SDK:** ❌ None — Winston `LoggerService` exists but only used in `HttpExceptionFilter`. Morgan middleware for HTTP request logging. All business logic uses `console.log`/`console.error`/`console.warn`. No prom-client. No OTel. No ObservabilityModule.
+**Branch:** `ft-add-obervability`  
+**SDK:** ✅ Installed (v1.0.1) — `ObservabilityModule.forRoot()` + `ObservabilityHealthModule` wired. Started fresh — per-endpoint domain events, metrics, and custom logging not yet implemented. Winston `LoggerService` and Morgan middleware still present alongside SDK. All business logic still uses `console.log`/`console.error`/`console.warn`.
 
 | Criticality | Count |
 |---|---|
@@ -265,7 +285,7 @@ Each row is one endpoint. Key columns:
 4. P0: `Kafka: representative.created` — implement retry with backoff or DLQ for missing business
 5. P0: `Kafka: customer.individual.created` — add compensation mechanism for missing business association
 6. P0: `GET /api/profile/:id/customer` — add access logging (client IP, user agent) for forensics until endpoint is secured
-7. P1: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`
+7. ~~P1: Wire `ObservabilityModule` in `main.ts` and `app.module.ts`~~ ✅ Done
 8. P1: `GET /api/profile/individual` — add pagination (returns entire customer table)
 9. P1: `PATCH /api/profile/individual/:id` — add domain event + audit trail for PII changes
 10. P1: `PATCH /api/profile/update-own-profile` — add signature upload metrics + file server latency tracking
