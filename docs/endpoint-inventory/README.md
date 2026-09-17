@@ -1,7 +1,7 @@
-# Application Service — Endpoint Inventory & Observability Tracking
+# Endpoint Inventory & Observability Tracking
 
-> Domain-by-domain endpoint inventory for application-service observability migration.
-> Each domain produces a separate CSV sheet. This README tracks progress, summarizes findings, and defines migration order.
+> Per-service endpoint inventory for observability migration.
+> Each service (or domain within large services) produces a separate CSV sheet. This README tracks progress, summarizes findings, and defines migration order.
 
 ## Service Overview
 
@@ -347,9 +347,111 @@ The outbox publisher and listener are the **delivery backbone for ALL domain eve
 | product | `ch-add-logger-sdk` | v1.0.1 | Installed, ObservabilityModule wired |
 | profile | `ch-add-logger-sdk` | v1.0.1 | Installed, ObservabilityModule wired |
 | application | `ch-add-logger-sdk` | v2.0.0 | Installed, ObservabilityModule wired, upgraded to v2.0.0 |
+| authentication | `chore/application-endpoint-observability-tracking` | v2.0.0 | Installed, ObservabilityModule + ObservabilityHealthModule wired, ObservabilityLogger used in UsersController (login domain events) |
 
 > ⚠️ v1.0.6+ is unstable — OTEL log transport fails in production mode. All services should use v1.0.1 until v2.0.0 stable release.
 
 ## Other Service Inventories
 
 Previous service inventories (access-management, configuration, workflow, product, profile) are tracked on the `chore/endpoint-observability-tracking` branch. See that branch's README for cross-service summaries.
+
+---
+
+## Authentication Service
+
+### Service Overview
+
+| Property | Value |
+|---|---|
+| Service | authentication-service |
+| Framework | NestJS + Sequelize ORM |
+| Database | PostgreSQL |
+| Transport | HTTP only (Kafka used as producer for logging, not consumer) |
+| Auth | JWT Bearer + Active Directory (LDAP) + OTP (email/SMS) |
+| External APIs | NIDA (national ID), RRA (tax/TIN), RDB (company registration), Notification Service, Profile Service, Access Management Service, Application Service, Gateway/Giriwawe |
+| Total Endpoints | 68 |
+| SDK Version | v2.0.0 |
+| SDK Status | Partially integrated — ObservabilityLogger in UsersController (login only), old LoggerService (Kafka) still in AccessController |
+
+### Endpoint Distribution
+
+| Controller | Endpoints | Critical | High | Medium | Low | P0 | P1 |
+|---|---|---|---|---|---|---|---|
+| UsersController | 20 | 4 | 8 | 4 | 4 | 5 | 6 |
+| AccessController | 20 | 4 | 6 | 3 | 7 | 3 | 7 |
+| StaffUserController | 11 | 2 | 4 | 0 | 5 | 3 | 3 |
+| DepartmentController | 7 | 0 | 0 | 4 | 3 | 0 | 0 |
+| UnitController | 8 | 0 | 1 | 3 | 4 | 0 | 1 |
+| AppController | 2 | 0 | 0 | 0 | 2 | 0 | 0 |
+| **Total** | **68** | **11** | **22** | **14** | **21** | **13** | **19** |
+
+### Criticality Summary
+
+- **Critical (11)**: Login, OTP validation, user creation, token refresh, password reset, role/permission assignment, user block/unblock, admin creation, staff hard delete, staff role management, 2FA toggle
+- **High (22)**: Email confirmation, OTP resend, forgot password, NID/TIN validation, staff user CRUD, business user management, role/permission creation
+- **Medium (14)**: User profile, business user updates, department/unit CRUD
+- **Low (21)**: Health checks, read-only listings, org chart queries
+
+### Security Findings
+
+1. **2 guards commented out** — `validate-national-id/:nationalId` and `validate-tin-rra/:tinNumber` have `@UseGuards(AccessGuard)` commented out, making NIDA/RRA data publicly accessible
+2. **1 endpoint missing guard entirely** — `get-profile-by-role` has no `@UseGuards` and no try/catch
+3. **No brute force detection** on OTP validation — unlimited attempts
+4. **No rate limiting metrics** on OTP resend — SMS bombing vector
+5. **Tokens in URL paths** — confirm-email/:token, find-user-by-reset-token/:resetToken, reset-password/:token — logged by proxies
+6. **Password changes with no audit trail** — reset-password has zero logging
+7. **Hard delete endpoints** with no audit — staff users and units can be permanently deleted without any record
+8. **Old LoggerService (Kafka-based)** still used in AccessController — should migrate to ObservabilityLogger
+
+### Existing Observability
+
+| Component | Status |
+|---|---|
+| ObservabilityModule | ✅ Wired in app.module with metrics, tracing, HTTP/Kafka instrumentations |
+| ObservabilityHealthModule | ✅ Imported |
+| NestPinoLogger | ✅ Set as app logger in main.ts |
+| setupProcessErrorHandlers | ✅ Called in main.ts |
+| ObservabilityLogger | ⚠️ Only in UsersController (login domain events) and StaffUserService |
+| domainEvent() | ⚠️ Only on login (auth.login_succeeded, auth.login_failed) |
+| @Trace() / @Span() decorators | ⚠️ On 5 endpoints (create, validate-national-id, validate-tin-rra, create-user-admin, create-business-user) |
+| Old LoggerService (Kafka) | ⚠️ Still used in AccessController — needs migration |
+| MorganMiddleware | ⚠️ Applied to all routes — HTTP request logging |
+| Custom metrics | ❌ None |
+| Audit logging | ❌ None for RBAC changes |
+
+### External Dependencies
+
+| Dependency | Used By | Purpose |
+|---|---|---|
+| NIDA API | UsersController (getUserNidData, validateNationId, completeFirstLogin) | National ID validation — government identity service |
+| RRA API | UsersController (validateTin, validateTinRra, getCompanyInfoFromRra) | TIN/tax validation — tax authority |
+| RDB API | UsersController (validateTinNumberRDB) | Company registration validation |
+| Active Directory (LDAP) | UsersController (login), ActiveDirectoryService | Staff authentication for @brd.rw users |
+| Notification Service | UsersController (email/SMS for OTP, registration, password reset) | Email + SMS delivery |
+| Profile Service | AccessController (fetchProfileByRole) | Profile data lookup |
+| Access Management Service | AccessService | Access control delegation |
+| Application Service | AccessService | Bank/tenant info lookup |
+| Gateway/Giriwawe | UsersController (forgotPasswordGiriwawe) | Giriwawe platform password reset |
+
+### Migration Order (Recommended)
+
+| Phase | Priority | Endpoints | Focus |
+|---|---|---|---|
+| 1 | P0 | Login, OTP validation, token refresh, password reset, user creation | Core auth flow — domain events + metrics |
+| 2 | P0 | manage-user-role, manage-role-permission, manage-user-access, create-user-admin | RBAC audit trail — security-critical |
+| 3 | P0 | Staff hard delete, staff role management, 2FA toggle | Staff security operations |
+| 4 | P1 | OTP resend, email confirmation, forgot password | Auth support flow — rate limiting metrics |
+| 5 | P1 | NIDA/RRA/RDB validation endpoints | External API metrics + fix commented-out guards |
+| 6 | P1 | Staff CRUD, business user management | Staff lifecycle audit trail |
+| 7 | P1 | Role/permission CRUD, user mapping | RBAC management audit |
+| 8 | P2 | Department/unit CRUD, business user updates | Org structure changes |
+| 9 | P2 | Validation endpoints, profile lookup | Lower-risk operations |
+| 10 | P3 | Read-only listings, health checks, org chart queries | Admin UI reads |
+
+### Key Patterns to Instrument
+
+1. **Dual auth path** — login routes to Active Directory or standard DB based on username (@brd.rw → AD). Both paths need equivalent observability.
+2. **OTP flow** — resend → validate → token issue. Rate limiting and brute force detection critical.
+3. **RBAC operations** — role/permission create/assign/remove. Every change needs audit trail with performer, target, and action.
+4. **External API calls** — NIDA, RRA, RDB, Active Directory. Need latency histograms and error rate tracking.
+5. **Old LoggerService migration** — AccessController still uses Kafka-based logger. Migrate to ObservabilityLogger with domainEvent().
