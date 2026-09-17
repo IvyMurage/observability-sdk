@@ -13,10 +13,10 @@
 | Transport | HTTP + Kafka (dual) |
 | Caching | Redis |
 | Patterns | Transactional outbox, SELECT FOR UPDATE, SKIP LOCKED |
-| Domains | ECGF (113 endpoints), E-Procurement (99 endpoints), Cross-cutting (~40 est.) |
-| Total Endpoints | ~252 (212 confirmed + ~40 est. cross-cutting) |
+| Domains | ECGF (113 endpoints), E-Procurement (99 endpoints), Cross-cutting (4 handlers) |
+| Total Endpoints | 216 (113 + 99 + 4) |
 | SDK Branch | `ch-add-logger-sdk` |
-| SDK Version | v1.0.1 |
+| SDK Version | v2.0.0 |
 | SDK Status | Installed, ObservabilityModule wired |
 
 ## Domain Progress
@@ -25,7 +25,7 @@
 |---|---|---|---|---|
 | ECGF (Export Credit Guarantee Fund) | [application-ecgf.csv](application-ecgf.csv) | 113 | ✅ Complete | ⏳ Pending |
 | E-Procurement | [application-eproc.csv](application-eproc.csv) | 99 | ✅ Complete | ⏳ Pending |
-| Cross-cutting (health, common) | — | ~40 est. | ❌ Not Started | — |
+| Cross-cutting (outbox, docs) | [application-crosscutting.csv](application-crosscutting.csv) | 4 | ✅ Complete | ⏳ Pending |
 
 ---
 
@@ -275,6 +275,68 @@
 
 ---
 
+## Cross-cutting Domain Summary
+
+**Infrastructure handlers** — No additional HTTP controllers beyond ECGF and E-Procurement. Cross-cutting concerns are the transactional outbox infrastructure and Swagger documentation.
+
+### Handlers
+
+| Handler | Type | Criticality | Priority |
+|---|---|---|---|
+| Swagger API Docs (`/api-docs`) | HTTP (auto-generated) | Low | P3 |
+| Outbox Publisher (`publishNewEvents`) | Cron (every 5 min) | Critical | P0 |
+| Outbox Housekeeping (`purgeSent`) | Cron (daily midnight) | Medium | P2 |
+| Outbox Listener (`handleEnqueueEvent`) | EventEmitter | Critical | P0 |
+
+### 🔴 Outbox is Critical Infrastructure
+
+The outbox publisher and listener are the **delivery backbone for ALL domain events** across both ECGF and E-Procurement. 16+ event types flow through this pipeline:
+
+- **E-Procurement**: ProcurementPlanItemSubmitted/Approved, RequisitionLineSubmitted/Approved, TenderLotSubmitted/Approved, TenderPublished, TenderLotClarificationSubmitted
+- **ECGF**: LoanApplicationSubmitted/Approved/Resubmitted, PfiOnboardingApplication, ClaimApproved/Rejected, IndividualReportApproved/Rejected
+
+**Current gaps**:
+- No queue depth metrics (NEW/ERR status counts)
+- No dead-letter alerting (events with 3+ failed attempts)
+- No per-topic publish success/failure breakdown
+- No Kafka publish latency tracking
+- No correlation between domain events and outbox delivery
+
+### Global Middleware (not inventoried as endpoints)
+
+| Middleware | Purpose |
+|---|---|
+| `HttpExceptionFilter` | Global error formatting. Uses LoggerService for error logging. |
+| `ValidationPipe` | class-validator with whitelist + forbidNonWhitelisted. |
+| `Morgan` | HTTP request logging in 'dev' format on all routes. |
+| `Helmet` | Security headers (X-Content-Type-Options, X-Frame-Options, etc.). |
+| `CORS` | Whitelist from `CORS_ORIGIN_WHITELIST` env var (semicolon-separated). |
+| `Kafka Transport` | Secondary microservice transport for all @MessagePattern handlers. |
+
+### Shared Service Modules (no endpoints)
+
+| Module | Purpose |
+|---|---|
+| `ExternalIntegrationModule` | All external API calls (Workflow, Auth, Profile, Config, Notification, ESRI, iBank, Credit Score). Redis caching (5min TTL) for ESRI/Land Center. |
+| `OutboxModule` | Transactional outbox pattern. KafkaProducerService, Publisher cron, Housekeeping cron, Listener. |
+| `PaginationModule` | Generic Sequelize findAndCountAll wrapper with offset-based pagination. |
+| `LoggerModule` | Winston with daily-rotate-file transports. Optional Kafka transport to `logging.info` topic. |
+| `DatabaseModule` | Sequelize ORM config. PostgreSQL. autoLoadModels, synchronize=false. |
+| `CacheModule` | Global Redis cache via cache-manager-redis-store. TTL from CACHE_TTL env var (default 60s). |
+
+---
+
+## Application Service — Final Totals
+
+| Domain | CSV | Endpoints | Critical | P0 |
+|---|---|---|---|---|
+| ECGF | application-ecgf.csv | 113 | 21 | 21 |
+| E-Procurement | application-eproc.csv | 99 | 14 | 15 |
+| Cross-cutting | application-crosscutting.csv | 4 | 2 | 2 |
+| **Total** | **3 files** | **216** | **37** | **38** |
+
+---
+
 ## SDK Installation Status
 
 | Service | Branch | SDK Version | Status |
@@ -284,7 +346,7 @@
 | workflow | `ch-add-observability-logger-sdk` | v1.0.6 ⚠️ | Installed, ObservabilityModule wired. **v1.0.6 unstable — downgrade to v1.0.1** |
 | product | `ch-add-logger-sdk` | v1.0.1 | Installed, ObservabilityModule wired |
 | profile | `ch-add-logger-sdk` | v1.0.1 | Installed, ObservabilityModule wired |
-| application | `ch-add-logger-sdk` | v1.0.1 | Installed, ObservabilityModule wired |
+| application | `ch-add-logger-sdk` | v2.0.0 | Installed, ObservabilityModule wired, upgraded to v2.0.0 |
 
 > ⚠️ v1.0.6+ is unstable — OTEL log transport fails in production mode. All services should use v1.0.1 until v2.0.0 stable release.
 
