@@ -348,6 +348,7 @@ The outbox publisher and listener are the **delivery backbone for ALL domain eve
 | profile | `ch-add-logger-sdk` | v1.0.1 | Installed, ObservabilityModule wired |
 | application | `ch-add-logger-sdk` | v2.0.0 | Installed, ObservabilityModule wired, upgraded to v2.0.0 |
 | authentication | `chore/application-endpoint-observability-tracking` | v2.0.0 | Installed, ObservabilityModule + ObservabilityHealthModule wired, ObservabilityLogger used in UsersController (login domain events) |
+| uno-job-scheduler | `ft-observability-sdk` (WIP stashed) | Not installed on main | No SDK on main branch. WIP on ft-observability-sdk branch (stashed) |
 
 > ⚠️ v1.0.6+ is unstable — OTEL log transport fails in production mode. All services should use v1.0.1 until v2.0.0 stable release.
 
@@ -455,3 +456,99 @@ Previous service inventories (access-management, configuration, workflow, produc
 3. **RBAC operations** — role/permission create/assign/remove. Every change needs audit trail with performer, target, and action.
 4. **External API calls** — NIDA, RRA, RDB, Active Directory. Need latency histograms and error rate tracking.
 5. **Old LoggerService migration** — AccessController still uses Kafka-based logger. Migrate to ObservabilityLogger with domainEvent().
+
+---
+
+## Uno Job Scheduler
+
+### Service Overview
+
+| Property | Value |
+|---|---|
+| Service | uno-job-scheduler |
+| Framework | NestJS + Sequelize ORM |
+| Database | PostgreSQL (Application, ApplicationBankStatus, BankInfo, StatusJobs models) |
+| Transport | HTTP (minimal) + Cron (primary) |
+| Caching | Redis (access control token caching, 5min TTL) |
+| External APIs | Access Control Service (Minecofin + RIM loan APIs), Application Service (guarantee document generation), Payment Service (invoice generation) |
+| Total Endpoints | 11 (3 HTTP + 8 Cron jobs) |
+| SDK Version | Not installed on main |
+| SDK Status | Not integrated. Uses NestJS Logger + console.log |
+
+### Endpoint Distribution
+
+| Controller/Service | HTTP | Cron | Total | Critical | P0 |
+|---|---|---|---|---|---|
+| ExternalIntegrationService | 0 | 4 | 4 | 4 | 4 |
+| GuaranteeFrameworkService | 0 | 3 | 3 | 0 | 0 |
+| InvoiceService | 0 | 1 | 1 | 0 | 0 |
+| InvoiceController | 1 | 0 | 1 | 0 | 0 |
+| AppController | 2 | 0 | 2 | 0 | 0 |
+| **Total** | **3** | **8** | **11** | **4** | **4** |
+
+### Criticality Summary
+
+- **Critical (4)**: All loan integration crons — sendApplicationsToMinecofin, saccoLoanStatus, rimLoanStatus, checkSaccoMissed (reconciliation)
+- **High (5)**: GFA generation, LoG generation, guarantee invoice generation, payment invoice cron, manual invoice trigger
+- **Low (2)**: Health checks
+
+### Security Findings
+
+1. **No auth on manual invoice trigger** — `GET api/invoices/generate` is publicly accessible, triggers financial operation
+2. **Basic Auth credentials** in env vars sent to Payment Service — no rotation mechanism visible
+3. **Access Control Service credentials** (ACCESS_CON_USER/PASSWORD) hardcoded in env — used for login to get tokens
+4. **sequelize.literal** used for balance updates with `principalAmount` — SQL injection risk if amount not sanitized
+5. **console.log** used throughout — may leak sensitive data (loan amounts, account numbers) to stdout
+
+### Existing Observability
+
+| Component | Status |
+|---|---|
+| NestJS Logger | ⚠️ Basic logging in all services (log, warn, error) |
+| console.log/error | ❌ Used alongside Logger — unstructured, no context |
+| MorganMiddleware | ⚠️ Applied to HTTP routes |
+| Custom metrics | ❌ None |
+| Tracing | ❌ None |
+| Job tracking | ⚠️ StatusJobs table for saccoLoanStatus only — not for other crons |
+| SDK | ❌ Not installed on main |
+
+### Cron Schedule Summary
+
+| Cron Job | Default Schedule | Env Override |
+|---|---|---|
+| sendApplicationsToMinecofin | Every 30 min | SEND_LOAN_REQUEST_CRON |
+| saccoLoanStatus | Every 30 min | GET_LOAN_STATUS_CRON |
+| rimLoanStatus | Every 30 min | GET_LOAN_STATUS_CRON_RIM |
+| checkSaccoMissed | Daily midnight | MISSED_STATUS_CRON |
+| generateGuaranteeFramework | Hourly (min 45) | GUARANTEE_FRAMEWORK_CRON |
+| generateLetterOfGuarantee | Hourly (min 45) | LETTER_OF_GUARANTEE_CRON |
+| generateLetterOfGuaranteeInvoice | Hourly (min 45) | GUARANTEE_INVOICE_CRON |
+| generateInvoice | Hourly (top of hour) | GENERATE_INVOICE_CRON |
+
+### External Dependencies
+
+| Dependency | Used By | Purpose |
+|---|---|---|
+| Access Control Service | ExternalIntegrationService (login, loan-request, loan-status) | Auth token + Minecofin/RIM loan APIs |
+| Minecofin API (via Access Control) | MinecofinLoanGateway, saccoLoanStatus, checkSaccoMissed | SACCO loan submission + status polling |
+| RIM API (via Access Control) | RimLoanGateway, rimLoanStatus | RIM bank loan submission + status polling |
+| Application Service | GuaranteeFrameworkService (GFA, LoG, invoice generation) | Guarantee document generation triggers |
+| Payment Service | InvoiceService (invoice generation with Basic Auth) | Payment invoice generation |
+
+### Migration Order (Recommended)
+
+| Phase | Priority | Endpoints | Focus |
+|---|---|---|---|
+| 1 | P0 | sendApplicationsToMinecofin, saccoLoanStatus | Core loan submission + status polling — metrics + domain events |
+| 2 | P0 | rimLoanStatus, checkSaccoMissed | RIM polling + reconciliation — auto-rejection alerting |
+| 3 | P1 | GFA/LoG/Invoice generation crons | Document generation — duration + failure metrics |
+| 4 | P1 | Manual invoice trigger | Add auth + metrics |
+| 5 | P3 | Health checks | Standard endpoints |
+
+### Key Patterns to Instrument
+
+1. **Loan submission pipeline** — Application created → sent to Minecofin/RIM → status polled → DISBURSED/REJECTED. Full lifecycle needs end-to-end tracing.
+2. **Reconciliation** — Daily midnight job catches missed loans. Auto-rejection after N retries is business-critical decision needing alerting.
+3. **Access Control token lifecycle** — Login → cache (5min) → reuse. Token failures block all loan operations.
+4. **Balance updates** — BankInfo.balance adjusted on DISBURSED status. Financial accuracy depends on correct transaction handling.
+5. **Three guarantee crons at same minute** — GFA + LoG + Invoice all at minute 45. Could overload application-service. Consider staggering.
