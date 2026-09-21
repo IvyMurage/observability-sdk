@@ -348,6 +348,7 @@ The outbox publisher and listener are the **delivery backbone for ALL domain eve
 | profile | `ch-add-logger-sdk` | v1.0.1 | Installed, ObservabilityModule wired |
 | application | `ch-add-logger-sdk` | v2.0.0 | Installed, ObservabilityModule wired, upgraded to v2.0.0 |
 | authentication | `chore/application-endpoint-observability-tracking` | v2.0.0 | Installed, ObservabilityModule + ObservabilityHealthModule wired, ObservabilityLogger used in UsersController (login domain events) |
+| mel-service | `ft-observability` | v2.0.0 | Installed, ObservabilityModule wired, centralized domain event utilities |
 | uno-job-scheduler | `ft-observability-sdk` (WIP stashed) | Not installed on main | No SDK on main branch. WIP on ft-observability-sdk branch (stashed) |
 
 > ⚠️ v1.0.6+ is unstable — OTEL log transport fails in production mode. All services should use v1.0.1 until v2.0.0 stable release.
@@ -552,3 +553,102 @@ Previous service inventories (access-management, configuration, workflow, produc
 3. **Access Control token lifecycle** — Login → cache (5min) → reuse. Token failures block all loan operations.
 4. **Balance updates** — BankInfo.balance adjusted on DISBURSED status. Financial accuracy depends on correct transaction handling.
 5. **Three guarantee crons at same minute** — GFA + LoG + Invoice all at minute 45. Could overload application-service. Consider staggering.
+
+---
+
+## MEL Service
+
+### Service Overview
+
+| Property | Value |
+|---|---|
+| Service | mel-service |
+| Framework | NestJS + Sequelize ORM |
+| Database | PostgreSQL (Programs, Reports, Donors, Forms, KPIs, Templates, UserDrafts) |
+| Transport | HTTP + Kafka consumer (WorkflowTaskCompleted) |
+| External APIs | Notification Service, Workflow Service, File Management Service, Auth Service (NID/TIN validation via AxiosService) |
+| Total Endpoints | 46 (44 HTTP + 1 Kafka consumer + 1 health) |
+| SDK Version | v2.0.0 |
+| SDK Status | Fully integrated. Best observability implementation across all services. Centralized domain event utilities. |
+
+### Endpoint Distribution
+
+| Controller | HTTP | Kafka | Total | Critical | P0 |
+|---|---|---|---|---|---|
+| ProgramsController | 15 | 0 | 15 | 2 | 2 |
+| ReportsController | 6 | 0 | 6 | 1 | 1 |
+| DonorsController | 3 | 0 | 3 | 0 | 0 |
+| FormsController | 6 | 0 | 6 | 0 | 0 |
+| KpisController | 6 | 0 | 6 | 0 | 0 |
+| TemplatesController | 7 | 0 | 7 | 1 | 1 |
+| ReportWorkflowEventsController | 0 | 1 | 1 | 1 | 1 |
+| AppController | 2 | 0 | 2 | 0 | 0 |
+| **Total** | **45** | **1** | **46** | **5** | **5** |
+
+### Criticality Summary
+
+- **Critical (5)**: Program creation, report submission, report review, template creation, Kafka workflow task processing
+- **High (11)**: Program update/status change/delete, file uploads, report file download, report update, form create/update, KPI import, template update/delete
+- **Medium (16)**: Draft operations, donor CRUD, KPI CRUD, list operations for programs/reports/donors
+- **Low (14)**: Read-only GETs (drafts, single records, lists for forms/kpis/templates), health checks
+
+### Priority Distribution
+
+| Priority | Count | % | Description |
+|---|---|---|---|
+| P0 | 5 | 10.9% | Program creation, report submission, report review, template creation, Kafka workflow task |
+| P1 | 11 | 23.9% | Program update/status/delete, file upload/download, report update, form create/update, KPI import, template update/delete |
+| P2 | 16 | 34.8% | Draft save operations, donor CRUD, KPI CRUD, list/summary operations |
+| P3 | 14 | 30.4% | Read-only drafts, single-record GETs, read-only lists, health checks |
+
+### Domain Events
+
+46 MelEvents across 6 entity groups (best coverage across all services):
+
+| Entity Group | Events | Entity Types |
+|---|---|---|
+| Program | 14 | PROGRAM, PROGRAM_DRAFT, FILE |
+| Report | 14 | REPORT, REPORT_DRAFT |
+| Donor | 6 | DONOR |
+| Form | 8 | FORM, FORM_DRAFT |
+| KPI | 10 | KPI |
+| Template | 10 | TEMPLATE, TEMPLATE_DRAFT |
+
+7 enumerated failure reasons: VALIDATION_FAILED, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, PAYLOAD_TOO_LARGE, INTERNAL_ERROR
+
+### Observability Architecture (Gold Standard)
+
+| Component | Status | Notes |
+|---|---|---|
+| ObservabilityModule | ✅ `serviceName: 'mel-service'`, `prefix: 'mel'` | |
+| setupTracing() | ✅ Called in main.ts | |
+| setupProcessErrorHandlers() | ✅ Called in main.ts | |
+| NestPinoLogger | ✅ Set as app logger | |
+| bufferLogs | ⚠️ Not passed to NestFactory.create | Minor gap |
+| logDomainEvent() | ✅ Centralized utility in all 7 controllers | Supports info/debug level parameter |
+| logDomainFailure() | ✅ With classifyFailure() severity routing | fault → error, client mistake → warn |
+| buildDomainEvent() | ✅ Auto-extracts actor from req.user, adds duration_ms + channel | |
+| countFiles() | ✅ Tracks file uploads across flat and grouped fields | |
+| @Span decorators | ✅ On service methods: program-create, report-workflow-task-completed, program-update, program-status-update | |
+| HttpExceptionFilter | ⚠️ Built with span enrichment but commented out in main.ts | Relying on SDK's built-in APP_FILTER |
+| Custom metrics | ❌ None | Blocked on endpoint inventory (now complete) |
+
+### External Dependencies
+
+| Dependency | Used By | Purpose |
+|---|---|---|
+| Notification Service | ProgramsService | Email notifications for program/report events |
+| Workflow Service | ProgramsService | Start/resume report workflow instances |
+| File Management Service | ProgramsService, ReportsController | Program file uploads, report file uploads/downloads |
+| Auth Service (via AxiosService) | ProgramsService | NID/TIN validation, token exchange |
+| XLSX library | KpisService, TemplatesService | Excel import/export for KPIs and templates |
+
+### Migration Status
+
+All 46 endpoints have domain events instrumented. Reads at debug level, writes at info level, failures classified as warn/error. This is the most complete observability migration across all reviewed services.
+
+**Remaining work**:
+- Define custom Prometheus metrics based on endpoint inventory
+- Create Grafana dashboard
+- Pass `bufferLogs: true` to NestFactory.create
+- Consider wiring HttpExceptionFilter or confirming SDK APP_FILTER is sufficient
