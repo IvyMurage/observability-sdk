@@ -349,6 +349,7 @@ The outbox publisher and listener are the **delivery backbone for ALL domain eve
 | application | `ch-add-logger-sdk` | v2.0.0 | Installed, ObservabilityModule wired, upgraded to v2.0.0 |
 | authentication | `chore/application-endpoint-observability-tracking` | v2.0.0 | Installed, ObservabilityModule + ObservabilityHealthModule wired, ObservabilityLogger used in UsersController (login domain events) |
 | mel-service | `ft-observability` | v2.0.0 | Installed, ObservabilityModule wired, centralized domain event utilities |
+| payment | `ft-observability` | v2.0.0 | Installed, ObservabilityModule wired, domain events + @Span throughout |
 | uno-job-scheduler | `ft-observability-sdk` (WIP stashed) | Not installed on main | No SDK on main branch. WIP on ft-observability-sdk branch (stashed) |
 
 > ⚠️ v1.0.6+ is unstable — OTEL log transport fails in production mode. All services should use v1.0.1 until v2.0.0 stable release.
@@ -652,3 +653,105 @@ All 46 endpoints have domain events instrumented. Reads at debug level, writes a
 - Create Grafana dashboard
 - Pass `bufferLogs: true` to NestFactory.create
 - Consider wiring HttpExceptionFilter or confirming SDK APP_FILTER is sufficient
+
+---
+
+## Payment Service
+
+### Service Overview
+
+| Property | Value |
+|---|---|
+| Service | payment-service |
+| Framework | NestJS + Sequelize ORM |
+| Database | SQL Server (via Tedious) |
+| Transport | HTTP + Kafka (dual) |
+| Patterns | Transactional outbox (EventEmitter → Kafka), status history tracking |
+| Domains | Payments (7 HTTP), Invoices (6 HTTP), Workflow Events (2 Kafka) |
+| Total Endpoints | 17 (15 HTTP + 2 Kafka) |
+| SDK Branch | `ft-observability` |
+| SDK Version | v2.0.0 |
+| SDK Status | Installed, ObservabilityModule wired, domain events + @Span on all service methods |
+
+### Endpoint Distribution
+
+| Controller | HTTP | Kafka | Total | Critical | P0 |
+|---|---|---|---|---|---|
+| PaymentController | 7 | 0 | 7 | 3 | 3 |
+| InvoiceController | 6 | 0 | 6 | 2 | 2 |
+| WorkflowEventsController | 0 | 2 | 2 | 1 | 1 |
+| AppController | 2 | 0 | 2 | 0 | 0 |
+| **Total** | **15** | **2** | **17** | **6** | **6** |
+
+### Criticality Summary
+
+- **Critical (6)**: Invoice creation (unguarded), invoice PDF generation, payment submission, payment confirmation (unguarded), payment resubmission, workflow completion (Kafka)
+- **High (4)**: Invoice listing (admin), PFI payment listing, payment by ID (unguarded), clarification request (unguarded), workflow task completion
+- **Medium (4)**: Invoice document retrieval, invoice document listing, all payments listing
+- **Low (2)**: Health check, hello endpoint
+
+### Priority Distribution
+
+| Priority | Count | % | Description |
+|---|---|---|---|
+| P0 | 6 | 35.3% | Payment submission, confirmation, resubmission, invoice creation, PDF generation, workflow completion |
+| P1 | 4 | 23.5% | Admin invoice listing, PFI payments, payment by ID, clarification, workflow task |
+| P2 | 5 | 29.4% | Document retrieval, document listing, all payments listing |
+| P3 | 2 | 11.8% | Health, hello |
+
+### Domain Events
+
+11 domain events across 2 entity groups in centralized constants file (`src/constants/outbox.ts`):
+
+| Entity Group | Events | Constants |
+|---|---|---|
+| Payment | 8 | SUBMITTED, CONFIRMED, REJECTED, CLARIFICATION_REQUESTED, RESUBMITTED, RECONCILED, WORKFLOW_STARTED, WORKFLOW_RESUMED |
+| Invoice | 3 | CREATED, PDF_GENERATED, PDF_GENERATION_FAILED |
+
+### Observability Architecture
+
+| Component | Status | Notes |
+|---|---|---|
+| ObservabilityModule | ✅ `serviceName: 'payment-service'`, `prefix: 'payment'` | Full config: metrics, tracing, environment |
+| setupTracing() | ✅ Called in main.ts | |
+| setupProcessErrorHandlers() | ✅ Called in main.ts | |
+| NestPinoLogger | ✅ Set as app logger | |
+| bufferLogs | ✅ Passed to NestFactory.create | |
+| ObservabilityLogger | ✅ Used across all services | Replaced old LoggerService + Winston |
+| domainEvent() | ✅ Direct calls with entity_type/entity_id/actor_type/metadata | |
+| @Span decorators | ✅ All service methods: submit-payment, get-payment-by-id, get-all-payments, confirm-payment, request-clarification, resubmit-payment, get-pfi-payments, complete-payment-plan-workflow (x2), get-workflow-schemas, start-workflow-instance, resume-workflow-instance, create-corporate-invoice, fetch-all-invoices, fetch-all-invoices-without-tin, fetch-one-invoice, generate-invoice | 17 spans total |
+| HttpExceptionFilter | ✅ Wired with ObservabilityLogger + OpenTelemetry span enrichment | Marks active span as ERROR + records exception |
+| createSequelizeLogging() | ✅ Slow query threshold: 500ms | |
+| Context propagation | ✅ AxiosService injects OTEL context via `propagation.inject()` | |
+| Old LoggerService | ✅ Deleted (`src/logger/logger.service.ts` removed) | |
+| MorganMiddleware | ✅ Deleted | Replaced by SDK request logging |
+
+### External Dependencies
+
+| Dependency | Used By | Purpose |
+|---|---|---|
+| Workflow Service | PaymentService, ExternalIntegrationService | Start/resume/complete workflow instances |
+| Profile Service | PaymentService | Get PFI representative (registration number) |
+| Auth Service | InvoiceService | Get profile by role (signatory names/signatures) |
+| Configuration Service | InvoiceService | Fetch invoice PDF templates |
+| File Server | InvoiceService | Upload generated PDF invoices |
+| Kafka | WorkflowEventsController, OutboxService | Workflow events (inbound), domain events (outbound) |
+
+### Security Findings
+
+| Finding | Endpoints | Severity |
+|---|---|---|
+| **3 unguarded payment mutation endpoints** | `POST /api/payments/:id/confirm`, `POST /api/payments/:id/request-clarification`, `GET /api/payments/:id` | **CRITICAL** |
+| **Unguarded invoice creation** | `POST /api/invoices/corporates` | **CRITICAL** |
+
+### Migration Status
+
+All 17 endpoints have SDK integration. 15 of 17 have @Span decorators (missing on `fetchAllInvoiceDocuments`). 11 domain events defined in centralized constants. HttpExceptionFilter fully wired with OTEL span enrichment. Old LoggerService and MorganMiddleware deleted. `createSequelizeLogging()` wired for slow query detection. OTEL context propagation via AxiosService.
+
+**Remaining work**:
+- Add AccessGuard to `POST /api/payments/:id/confirm`, `POST /api/payments/:id/request-clarification`, `GET /api/payments/:id`
+- Add AccessGuard to `POST /api/invoices/corporates`
+- Add @Span to `fetchAllInvoiceDocuments` in InvoiceService
+- Create Grafana dashboard
+- Duplicate @Span name: `complete-payment-plan-workflow` used on both `completePaymentPlanWorkflow` and `completePaymentPlanWorkflowTask` — differentiate them
+- WorkflowEventsController logs use debug-style string interpolation with emoji markers — should use structured logging
