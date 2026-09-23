@@ -351,6 +351,7 @@ The outbox publisher and listener are the **delivery backbone for ALL domain eve
 | mel-service | `ft-observability` | v2.0.0 | Installed, ObservabilityModule wired, centralized domain event utilities |
 | payment | `ft-observability` | v2.0.0 | Installed, ObservabilityModule wired, domain events + @Span throughout |
 | uno-job-scheduler | `ft-observability-sdk` (WIP stashed) | Not installed on main | No SDK on main branch. WIP on ft-observability-sdk branch (stashed) |
+| api-gateway | `ch-configure-sdk-clean` (WIP, 4 commits) | Not installed on main | Pure BFF — no SDK, no DB, no domain events. Uses Winston + custom x-trace-id/x-span-id headers |
 
 > ⚠️ v1.0.6+ is unstable — OTEL log transport fails in production mode. All services should use v1.0.1 until v2.0.0 stable release.
 
@@ -755,3 +756,160 @@ All 17 endpoints have SDK integration. 15 of 17 have @Span decorators (missing o
 - Create Grafana dashboard
 - Duplicate @Span name: `complete-payment-plan-workflow` used on both `completePaymentPlanWorkflow` and `completePaymentPlanWorkflowTask` — differentiate them
 - WorkflowEventsController logs use debug-style string interpolation with emoji markers — should use structured logging
+
+---
+
+## API Gateway
+
+### Service Overview
+
+| Property | Value |
+|---|---|
+| Service | api-gateway |
+| Framework | NestJS (pure BFF — no ORM, no database) |
+| Database | None |
+| Transport | HTTP + Kafka RPC (4 form/loan controllers) |
+| Caching | Redis (via CacheModule) |
+| Patterns | BFF proxy pattern — all requests forwarded to downstream microservices via AxiosService |
+| Downstream Services | 14: USER, PROFILE, ACCESS_MANAGEMENT, APPLICATION (largest), PAYMENT, MEL, PROPERTIES, CREDIT_SCORE, CORE_BANKING, CRM, PRODUCT, CONFIGURATION, WORKFLOW, LOGGING |
+| Total Endpoints | 500 (across 64 controllers + 1 empty stub) |
+| SDK Branch | `ch-configure-sdk-clean` (WIP, 4 commits) |
+| SDK Version | Not installed on main |
+| SDK Status | No SDK. Winston + DailyRotateFile + Kafka transport for logging. Custom x-trace-id/x-span-id via UUID (NOT OTEL propagation) |
+
+### Architecture
+
+The API Gateway is a **pure Backend-For-Frontend (BFF)** — it contains:
+- **No database** — zero ORM, zero models, zero migrations
+- **No `@brdrwanda/observability` SDK** — no ObservabilityModule, no Pino, no setupTracing
+- **No domain events** — no outbox, no event emission
+- **No route-level auth guards** — zero `@UseGuards`, zero `AccessGuard`, zero `BasicAuthGuard`. Auth is entirely delegated to downstream services
+- **TokenMiddleware** (global) — synthesizes `Authorization: Bearer <token>` from HttpOnly `token` cookie so downstream guards accept cookie-authenticated web clients
+- **CustomThrottlerGuard** (global APP_GUARD) — rate limiting only, NOT authorization
+- **MorganMiddleware** (global) — HTTP request logging in 'dev' format
+
+### Endpoint Distribution by Domain
+
+| Domain | Controllers | Endpoints | Critical | High | Medium | Low |
+|---|---|---|---|---|---|---|
+| Authentication & Access | Users, Access, Staff, Business, InternalBusinessDocs, BusinessFlags, Flags | 7 | 87 | 17 | 31 | 18 | 21 |
+| Profile Management | Profile, Business (partial) | 2 | 24 | 0 | 8 | 8 | 8 |
+| Access Management | RoleAccess, Route | 2 | 7 | 2 | 3 | 0 | 2 |
+| ECGF Applications | Application, GuaranteeApp, GuaranteeFramework, GuaranteeLoans, LoanApp, Claims, Restructuring, IndividualReports, Simulation, ExternalAPI | 10 | 82 | 14 | 17 | 28 | 23 |
+| Forms (Kafka RPC) | FormFields, FormCreation, FormOptions, LoanCalculator | 4 | 12 | 0 | 4 | 0 | 8 |
+| Payments & Invoicing | Payment, Invoice | 2 | 11 | 3 | 3 | 4 | 1 |
+| MEL (Monitoring & Evaluation) | Programs, Donors, Reports, Forms (MEL), KPIs, Templates, Surveys | 7 | 57 | 5 | 13 | 18 | 21 |
+| Properties & Real Estate | Properties, Units, Applications, Requests, Dashboard | 5 | 33 | 0 | 6 | 6 | 21 |
+| E-Procurement | Tenders, TendersPublic, InternalTenders, Requisitions, Clarifications, ClarificationsPublic, Evaluation, InternalProcurementTAT, ProcurementPlan, Bids | 10 | 89 | 9 | 33 | 26 | 21 |
+| Credit Scoring | CreditScore | 1 | 6 | 1 | 1 | 4 | 0 |
+| Core Banking | CoreBanking, Companies, Beneficiaries | 3 | 10 | 0 | 3 | 4 | 3 |
+| Products | Product | 1 | 14 | 0 | 4 | 0 | 10 |
+| Configuration | Configurations | 1 | 14 | 0 | 4 | 1 | 9 |
+| Workflow | Workflow | 1 | 21 | 3 | 7 | 6 | 5 |
+| CRM & Ticketing | Tickets, TicketAssignments, TicketCategories, MinuzaTickets, MinuzaUsers | 5 | 16 | 0 | 0 | 6 | 10 |
+| Logging | Logging | 1 | 1 | 0 | 0 | 1 | 0 |
+| Dynamic Forms | DynamicForm | 1 | 7 | 0 | 2 | 0 | 5 |
+| Financial Institutions | FinancialInstitution | 1 | 10 | 1 | 2 | 4 | 3 |
+| Core / Health | App | 1 | 2 | 0 | 0 | 0 | 2 |
+| **Total** | **65 (64 + 1 empty stub)** | **500** | **53** | **121** | **172** | **154** |
+
+### Criticality Distribution
+
+| Criticality | Count | % |
+|---|---|---|
+| Critical | 53 | 10.6% |
+| High | 121 | 24.2% |
+| Medium | 172 | 34.4% |
+| Low | 154 | 30.8% |
+
+### Priority Distribution
+
+| Priority | Count | % | Description |
+|---|---|---|---|
+| P0 | 53 | 10.6% | Auth flows, financial operations, bid submission, workflow start/resume, payment confirmation |
+| P1 | 121 | 24.2% | State transitions, file uploads, RBAC operations, external validations |
+| P2 | 172 | 34.4% | Admin listings, updates, deletes, draft operations |
+| P3 | 154 | 30.8% | Read-only views, health checks, static data |
+
+### 🔴 Key Findings
+
+| Finding | Details | Severity |
+|---|---|---|
+| **ZERO route-level auth guards across 500 endpoints** | No `@UseGuards`, no `AccessGuard`, no `BasicAuthGuard` anywhere. TokenMiddleware only normalizes cookie→header; CustomThrottlerGuard is rate limiting only. Auth entirely delegated downstream — if downstream service has no guard, endpoint is fully open. | **CRITICAL** |
+| **Custom trace propagation, not OTEL** | `x-trace-id` = UUID, `x-span-id` = `gw-span-${timestamp}`. NOT OpenTelemetry `propagation.inject()`. Traces break at gateway boundary. | **HIGH** |
+| **No structured logging** | Winston + DailyRotateFile + Kafka transport. Morgan for HTTP. console.warn for slow requests. No Pino, no structured JSON with trace context. | **HIGH** |
+| **~20 file upload endpoints** with varying size limits (5MB–50MB) | FileInterceptor, FilesInterceptor, FileFieldsInterceptor, AnyFilesInterceptor used. No upload metrics, no size tracking. | **MEDIUM** |
+| **4 Kafka RPC controllers** (FormFields, FormCreation, FormOptions, LoanCalculator) use TokenInterceptor instead of gateway-wide TokenMiddleware | Different auth mechanism than rest of gateway. | **LOW** |
+
+### 🐛 Bugs Discovered
+
+| Bug | Location | Impact |
+|---|---|---|
+| **Dual `@Controller()` decorators** on ProcurementPlanController | procurement-plan.controller.ts | NestJS uses last decorator — first one silently ignored. Confusing but not breaking. |
+| **Swapped handler names** in RouteController | route.controller.ts | GET handler named `create`, POST handler named `fetchAll`. Names misleading but routes work. |
+| **Copy-paste method name** in RequestsController | requests.controller.ts | `searchUnitsByFields` — leftover from UnitsController copy. |
+| **MinuzaTicketService posts to wrong downstream path** | minuza-ticket.service.ts | POSTs to `/api/tickets/create` instead of `/api/minuza-tickets/create`. Minuza tickets may be created as regular tickets downstream. |
+| **Duplicate list endpoints** on BidController | bid.controller.ts | Both `/all` and `/list` do same thing (versioning cruft). |
+| **Near-identical controllers** | TicketController vs MinuzaTicketController | Same structure, same methods. Should be unified or MinuzaTicket should have distinct downstream path. |
+| **CompaniesController.create is a GET-like POST** | companies.controller.ts | Method named "create" but calls `getAllCompanies`. |
+
+### Global Middleware Stack
+
+| Layer | Component | Purpose |
+|---|---|---|
+| 1 | TokenMiddleware | Cookie-to-header auth synthesis. Handles junk headers (Bearer null/undefined). Validates JWT structure (3 segments). |
+| 2 | MorganMiddleware | HTTP request logging in 'dev' format. |
+| 3 | CustomThrottlerGuard | Global rate limiting (APP_GUARD). NOT authorization. |
+| 4 | HttpExceptionFilter | Global error formatting (APP_FILTER). |
+| 5 | AxiosService | Connection pooling (100 max sockets), custom x-trace-id/x-span-id headers, slow request logging (>5s), 30s timeout. |
+
+### AxiosService Trace Propagation (Current)
+
+```
+Request → AxiosService.buildHeaders() → {
+  'x-trace-id': UUID (generated or from req.headers['x-trace-id']),
+  'x-span-id': `gw-span-${formatDate()}`,
+  authorization: from req.headers.authorization (via TokenMiddleware),
+  origin, device, x-forwarded-for, user-agent: forwarded from client
+}
+```
+
+This custom trace propagation does NOT integrate with OpenTelemetry. Downstream services using OTEL (`propagation.extract()`) will NOT see gateway traces. The SDK branch (`ch-configure-sdk-clean`) has started work to replace this with proper OTEL context propagation via `propagation.inject()`.
+
+### Existing Observability
+
+| Component | Status |
+|---|---|
+| Winston logger | ⚠️ DailyRotateFile + Kafka transport to logging service. Unstructured. |
+| Morgan middleware | ⚠️ HTTP request logging in 'dev' format (colorized, not JSON). |
+| Custom x-trace-id | ⚠️ UUID-based, not OTEL. Breaks at service boundaries. |
+| Custom x-span-id | ⚠️ `gw-span-${timestamp}`. Not OTEL spans. |
+| Slow request detection | ⚠️ console.warn for requests >5s. No metrics. |
+| Connection pooling metrics | ❌ 100 max sockets configured but no socket usage tracking. |
+| SDK | ❌ Not installed on main. |
+| Tracing | ❌ No OTEL. No @Trace/@Span. |
+| Metrics | ❌ No Prometheus. No prom-client. |
+| Domain events | ❌ N/A — pure BFF has no domain logic. |
+| Structured logging | ❌ No Pino. No JSON logs with trace context. |
+
+### Migration Recommendations
+
+The API Gateway is uniquely important because it's the **single entry point for ALL client traffic**. Every request passes through it before reaching any downstream service. Observability here gives visibility into the entire system.
+
+| Phase | Focus | Reason |
+|---|---|---|
+| 1 | Install SDK, replace Winston with Pino, wire ObservabilityModule | Foundation — structured logging + OTEL trace context on every request |
+| 2 | Replace custom x-trace-id/x-span-id with OTEL `propagation.inject()` in AxiosService | End-to-end distributed tracing across all 14 downstream services |
+| 3 | Add request duration histograms per downstream service | Identify which microservices are slow. Gateway sees ALL latency. |
+| 4 | Add error rate counters per downstream service + status code | Alert on downstream failures before users notice |
+| 5 | Add file upload metrics (size, duration, success/failure) | ~20 upload endpoints with no tracking |
+| 6 | Add Grafana dashboard | Gateway dashboard is the single-pane-of-glass for all system traffic |
+
+### Key Patterns to Instrument
+
+1. **AxiosService request/response** — Duration histogram per downstream service URL, status code counter, error rate. This single instrumentation point covers ALL 500 endpoints.
+2. **TokenMiddleware** — Cookie-to-header conversion success/failure, malformed header detection rate.
+3. **File uploads** — Per-endpoint upload size histogram, upload duration, failure rate.
+4. **Kafka RPC** — 4 controllers use Kafka instead of HTTP. Separate latency tracking.
+5. **Connection pool** — Socket utilization, queue depth, exhaustion events.
+6. **Throttler** — Rate limit hit rate per route/IP. Identifies abuse patterns.
