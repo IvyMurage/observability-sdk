@@ -20,9 +20,10 @@ datasources:
     jsonData:
       derivedFields:
         - datasourceUid: tempo
-          matcherRegex: '"trace_id":"(\w+)"'
+          matcherRegex: '"trace_id":"([a-f0-9]+)"'
           name: TraceID
           url: '$${__value.raw}'
+          urlDisplayLabel: View Trace
 
   - name: Tempo
     type: tempo
@@ -30,25 +31,29 @@ datasources:
     uid: tempo
     url: http://localhost:3200
     jsonData:
-      tracesToLogs:
+      tracesToLogsV2:
         datasourceUid: loki
-        filterByTraceID: true
-        filterBySpanID: false
         spanStartTimeShift: '-5m'
         spanEndTimeShift: '5m'
-        mappedTags:
-          - key: service.name
-            value: service_name
+        filterByTraceID: true
+        filterBySpanID: false
+        customQuery: true
+        query: '{service_name="$${__span.tags["service.name"]}"} |= `$${__span.traceId}`'
       tracesToMetrics:
         datasourceUid: prometheus
         spanStartTimeShift: '-5m'
         spanEndTimeShift: '5m'
+        tags:
+          - key: service.name
+            value: service
         queries:
           - name: Request rate
-            query: 'sum(rate({__name__=~".+_http_requests_total"}[$__rate_interval]))'
+            query: 'sum(rate($${__tags}_http_requests_total[$__rate_interval]))'
           - name: Error rate
-            query: 'sum(rate({__name__=~".+_http_requests_total", status_code=~"5.."}[$__rate_interval]))'
+            query: 'sum(rate($${__tags}_http_requests_total{status_code=~"5.."}[$__rate_interval]))'
           - name: Duration p95
-            query: 'histogram_quantile(0.95, sum(rate({__name__=~".+_http_request_duration_seconds_bucket"}[$__rate_interval])) by (le))'
+            query: 'histogram_quantile(0.95, sum(rate($${__tags}_http_request_duration_seconds_bucket[$__rate_interval])) by (le))'
       serviceMap:
         datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
