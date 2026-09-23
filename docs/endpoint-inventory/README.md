@@ -352,6 +352,7 @@ The outbox publisher and listener are the **delivery backbone for ALL domain eve
 | payment | `ft-observability` | v2.0.0 | Installed, ObservabilityModule wired, domain events + @Span throughout |
 | uno-job-scheduler | `ft-observability-sdk` (WIP stashed) | Not installed on main | No SDK on main branch. WIP on ft-observability-sdk branch (stashed) |
 | api-gateway | `ch-configure-sdk-clean` (WIP, 4 commits) | Not installed on main | Pure BFF — no SDK, no DB, no domain events. Uses Winston + custom x-trace-id/x-span-id headers |
+| credit-scoring | `ch-sdk-integration` (1 commit) | Not installed on main | No SDK. Winston + DailyRotateFile + optional DB audit logs. No tracing, no metrics |
 
 > ⚠️ v1.0.6+ is unstable — OTEL log transport fails in production mode. All services should use v1.0.1 until v2.0.0 stable release.
 
@@ -913,3 +914,132 @@ The API Gateway is uniquely important because it's the **single entry point for 
 4. **Kafka RPC** — 4 controllers use Kafka instead of HTTP. Separate latency tracking.
 5. **Connection pool** — Socket utilization, queue depth, exhaustion events.
 6. **Throttler** — Rate limit hit rate per route/IP. Identifies abuse patterns.
+
+---
+
+## Credit Scoring Service
+
+### Service Overview
+
+| Property | Value |
+|---|---|
+| Service | credit-scoring |
+| Framework | NestJS + Sequelize ORM |
+| Database | PostgreSQL (credit_score schema: CreditScore, CreditScoreEligibility, CreditScoreCalculation, Events, ScoreDictionary, WeightDictionary, AuditLogs) |
+| Transport | HTTP only |
+| Caching | Redis (NIDA, CRB risk score, ESRI land data, account balance — 5min TTL) |
+| External APIs | Access Control Service (NIDA, CRB, ESRI, RRA), RDB Service (company profiles), Application Service (account balance decryption) |
+| Total Endpoints | 8 (2 AppController + 6 CreditScoreController) |
+| SDK Branch | `ch-sdk-integration` (1 commit) |
+| SDK Version | Not installed on main |
+| SDK Status | No SDK. Winston + DailyRotateFile + optional DB audit logging. No tracing, no metrics. |
+
+### Architecture
+
+Credit Scoring is an **agricultural loan eligibility and scoring engine** for BRD's Kataza program. Two-phase process:
+
+1. **Eligibility Check** — Validates applicant against criteria (age by gender, facility type, value chain, land ownership). For individuals: calls NIDA via Access Control Service. For businesses: calls RDB for company profile.
+2. **Credit Score Calculation** — Multi-metric scoring across 4 categories (KYC, Land, Financials, Social Impact). Requires 5+ external API calls per request: NIDA (identity), CRB (credit bureau risk score), ESRI (geospatial land suitability), simulation data (from DB), Application Service (account balance decryption).
+
+### Endpoint Distribution
+
+| Controller | Endpoints | Critical | High | Medium | Low | P0 | P1 |
+|---|---|---|---|---|---|---|---|
+| CreditScoreController | 6 | 2 | 1 | 2 | 1 | 2 | 1 |
+| AppController | 2 | 0 | 0 | 0 | 2 | 0 | 0 |
+| **Total** | **8** | **2** | **1** | **2** | **3** | **2** | **1** |
+
+### Criticality Distribution
+
+| Criticality | Count | % |
+|---|---|---|
+| Critical | 2 | 25.0% |
+| High | 1 | 12.5% |
+| Medium | 2 | 25.0% |
+| Low | 3 | 37.5% |
+
+### Priority Distribution
+
+| Priority | Count | % | Description |
+|---|---|---|---|
+| P0 | 2 | 25.0% | Eligibility evaluation, credit score calculation — core scoring pipeline |
+| P1 | 1 | 12.5% | Store simulation data — prerequisite for calculation |
+| P2 | 2 | 25.0% | Eligibility check lookup, calculation results with ESRI data |
+| P3 | 3 | 37.5% | Credit score lookups, application ID lookup, health checks |
+
+### 🔴 Key Findings
+
+| Finding | Details | Severity |
+|---|---|---|
+| **Errors swallowed as HTTP 200** | All service methods catch errors and return `{ message, statusCode: error.status, data: null }` with HTTP 200. Clients must parse `statusCode` field to detect failures. Monitoring sees all requests as "successful." | **CRITICAL** |
+| **console.log in JwtAuthGuard** | `console.log('userData >>>', userData)` and `console.log('user >>> ', request.user)` — decrypted user data logged to stdout in production | **HIGH** |
+| **console.log('Error', error) in getAccountBalance** | Full error object (potentially including tokens/headers) logged to stdout | **HIGH** |
+| **Account balance logged in plaintext** | `Account balance = ${accountBalance}` logged via LoggerService in `populateDto` | **MEDIUM** |
+| **Savings-to-debt ratio logged in plaintext** | Financial ratio logged via LoggerService | **MEDIUM** |
+| **Access Control credentials in env vars** | `ACCESS_CONTROL_SERVICE_USERNAME/PASSWORD` + separate `_DEV` variants. Two distinct credential sets (prod + dev ESRI). No rotation mechanism visible. | **MEDIUM** |
+| **RDB credentials in env vars** | `RDB_SERVICE_USERNAME/PASSWORD` for company profile lookups. No rotation. | **MEDIUM** |
+| **No HttpExceptionFilter wired globally** | `HttpExceptionFilter` class exists but is never registered as APP_FILTER in app.module.ts | **LOW** |
+| **GET /calculations/:id calls ESRI on every read** | Read endpoint makes external API call. No caching for this path (unlike the calculate flow). Unexpected load on ESRI. | **LOW** |
+
+### Auth Pattern
+
+- **JwtAuthGuard** applied per-route via `@UseGuards(JwtAuthGuard)` on all 6 CreditScoreController endpoints
+- AppController endpoints (health, hello) have NO auth
+- Guard decrypts JWT user data using AES encryption (`Utils.decryptData`). Handles mobile vs web via `x-device-header`
+- `@User()` decorator extracts decrypted user from `req.user`
+
+### Database Schema (credit_score.*)
+
+| Table | Purpose | Key Operations |
+|---|---|---|
+| credit_score | Links applicationId to applicantId with eligibility decision status | Create (on eligibility check), findOne/findByPk (on calculate, lookups) |
+| credit_score_eligibility | Stores eligibility check results (eligible, evaluatedResults JSON, cropType) | Create (on eligibility), findOne (on calculate validation) |
+| credit_score_calculation | Stores calculation results (totalScore, breakdown JSON, detailedBreakdown JSON, riskCategory, recommended) | Create (on calculate), findAll (on lookups) |
+| events | Simulation data (UPI, loan amounts, DSCR, margins, isProcessed flag) | Create (store-simulation-data), findOne (on calculate), update (mark processed + save savings ratio) |
+| score_dictionary | Scoring parameter lookup (parameterKey → value → score → description) | findOne (land overrides, suitability descriptions) |
+| weight_dictionary | Weight configuration for scoring categories | Read (by CalculateCriteriaService) |
+| audit_logs | Optional DB-level audit logging (when LOG_MODE includes 'db') | Create (on every log/error call when enabled) |
+
+### External Dependencies
+
+| Dependency | Used By | Purpose | Caching |
+|---|---|---|---|
+| Access Control Service (PROD) | ExternalIntegrationService | Login → token, NIDA validation, CRB risk score, RRA info | NIDA: 5min, CRB: 5min |
+| Access Control Service (DEV) | ExternalIntegrationService | Login → token, ESRI v1/v2 land suitability data | ESRI: 5min |
+| RDB Service | ExternalIntegrationService | Login → token, company profile by TIN | Company info: 5min |
+| Application Service | ExternalIntegrationService | GET decrypt-account-balance (forwards user's auth token) | Account balance: 5min |
+
+### Existing Observability
+
+| Component | Status |
+|---|---|
+| Winston logger (LoggerService) | ⚠️ Console + optional DailyRotateFile (info/error split). Unstructured format: `YYYY-MM-DD HH:mm:ss [LEVEL] [context]: message` |
+| DB audit logging | ⚠️ Optional (LOG_MODE=db). Stores action/message/performedBy to audit_logs table |
+| Morgan middleware | ⚠️ Applied to all HTTP routes |
+| Performance timing | ⚠️ Custom `Performance` class (high-res timer) used in ExternalIntegrationService for external call timing. Logged but not exposed as metrics. |
+| Redis caching | ✅ NIDA, CRB, ESRI, account balance, company info — all 5min TTL |
+| HttpExceptionFilter | ❌ Exists but NOT wired as global filter |
+| SDK | ❌ Not installed on main |
+| Tracing | ❌ No OTEL. No @Trace/@Span |
+| Metrics | ❌ No Prometheus. No prom-client |
+| Domain events | ❌ None |
+| Structured logging | ❌ No Pino. No JSON logs |
+| console.log | ❌ Used in JwtAuthGuard (user data) and getAccountBalance (errors) — leaks to stdout |
+
+### Migration Order (Recommended)
+
+| Phase | Priority | Endpoints | Focus |
+|---|---|---|---|
+| 1 | P0 | /eligibility/evaluate, /calculate | Core pipeline — domain events + structured logging + tracing across 5+ external calls. Fix error-swallowing anti-pattern. |
+| 2 | P1 | /store-simulation-data | Simulation ingestion — structured logging + metrics |
+| 3 | P2 | /eligibility/:id, /calculations/:id | Read endpoints — add caching to /calculations/:id ESRI call |
+| 4 | P3 | /:id, /application/:id, health checks | Low-risk reads |
+
+### Key Patterns to Instrument
+
+1. **Multi-external-API pipeline** — /calculate makes 5+ external calls per request (Access Control login, NIDA, CRB, ESRI, Application Service). End-to-end trace with per-call latency histograms critical for diagnosing slowness.
+2. **Error-swallowing anti-pattern** — All service methods catch errors and return HTTP 200 with error `statusCode` in body. Must fix before observability works — monitoring/alerting relies on HTTP status codes.
+3. **Redis cache hit/miss** — 5min TTL on all external data. Track hit rates to tune TTL and identify cache stampedes.
+4. **Access Control token lifecycle** — Separate login calls to 3 different services (Access Control prod, Access Control dev, RDB). Token not cached — new login per external call chain.
+5. **Scoring metrics** — Eligibility pass rate, risk category distribution, average total score, calculation duration histogram.
+6. **Remove console.log** — JwtAuthGuard logs decrypted user data to stdout. getAccountBalance logs full error objects. Security risk.
