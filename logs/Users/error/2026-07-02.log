@@ -1,1 +1,0 @@
-{"context":{"spanId":"gw-span-20260702103254","traceId":"031f6e66-48d1-42fb-8346-ee116917d602"},"level":"error","message":"Invalid column name 'NaN'.","timestamp":"2026-07-02 10:32:55"}
