@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Domain Events — @brdrwanda/observability</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1a1a2e;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #2563eb;
+      --accent-light: #eff6ff;
+      --sidebar-bg: #f8fafc;
+      --code-bg: #f1f5f9;
+      --code-block-bg: #0f172a;
+      --code-block-text: #e2e8f0;
+      --success: #059669;
+      --warn: #d97706;
+      --error: #dc2626;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.7;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      width: 280px;
+      min-height: 100vh;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      padding: 24px 0;
+      position: fixed;
+      top: 0;
+      left: 0;
+      overflow-y: auto;
+      z-index: 10;
+    }
+
+    .sidebar-header {
+      padding: 0 20px 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+
+    .sidebar-header h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+
+    .sidebar-header p {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .sidebar a {
+      display: block;
+      padding: 8px 20px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s;
+      border-left: 3px solid transparent;
+    }
+
+    .sidebar a:hover {
+      color: var(--text);
+      background: var(--accent-light);
+    }
+
+    .sidebar a.active {
+      color: var(--accent);
+      border-left-color: var(--accent);
+      background: var(--accent-light);
+      font-weight: 600;
+    }
+
+    .content {
+      flex: 1;
+      margin-left: 280px;
+      max-width: 900px;
+      padding: 48px 60px 80px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-top: 48px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      letter-spacing: -0.02em;
+    }
+
+    h3 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-top: 32px;
+      margin-bottom: 12px;
+    }
+
+    h4 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 24px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    p { margin-bottom: 16px; font-size: 15px; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code {
+      font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      font-size: 13px;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    pre {
+      background: var(--code-block-bg);
+      color: var(--code-block-text);
+      padding: 20px 24px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 16px 0 24px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+      font-size: 13px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      background: var(--sidebar-bg);
+      border: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    td {
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:hover td { background: var(--accent-light); }
+
+    ul, ol {
+      padding-left: 24px;
+      margin-bottom: 16px;
+    }
+
+    li {
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+
+    blockquote {
+      border-left: 3px solid var(--accent);
+      padding: 12px 20px;
+      margin: 16px 0;
+      background: var(--accent-light);
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    blockquote p { margin-bottom: 0; }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 40px 0;
+    }
+
+    strong { font-weight: 600; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-new {
+      background: #dcfce7;
+      color: var(--success);
+    }
+
+    .badge-warn {
+      background: #fef3c7;
+      color: var(--warn);
+    }
+
+    .schema-field {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .schema-field code {
+      min-width: 140px;
+    }
+
+    .schema-field .type {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .auto-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #dbeafe;
+      color: var(--accent);
+      vertical-align: middle;
+      margin-left: 4px;
+    }
+
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .content { margin-left: 0; padding: 24px; }
+    }
+
+    @media print {
+      .sidebar { display: none; }
+      .content { margin-left: 0; max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h2>@brdrwanda/observability</h2>
+      <p>SDK Documentation</p>
+    </div>
+    <div class="sidebar-nav">
+      <a href="index.html">Documentation Home</a>
+          <a href="getting-started.html">Getting Started</a>
+          <a href="configuration.html">Configuration</a>
+          <a href="logging.html">Logging</a>
+          <a href="domain-events.html" class="active">Domain Events</a>
+          <a href="tracing.html">Distributed Tracing</a>
+          <a href="metrics.html">Metrics</a>
+          <a href="instrumentations.html">Instrumentations</a>
+          <a href="error-handling.html">Error Handling</a>
+          <a href="alerting.html">Alerting</a>
+          <a href="architecture.html">Architecture</a>
+          <a href="architecture-decisions.html">Architecture Decisions</a>
+          <a href="migration.html">Migration Guide</a>
+          <a href="migration-per-service.html">Service Migration Reference</a>
+          <a href="deployment-pm2.html">Deployment</a>
+          <a href="sdk-explained.html">SDK Internals</a>
+          <a href="sdk-deployment.html">SDK Deployment</a>
+          <a href="standalone.html">Standalone Mode</a>
+          <a href="testing.html">Testing</a>
+          <a href="troubleshooting.html">Troubleshooting</a>
+          <a href="CHANGELOG.html">Changelog</a>
+    </div>
+  </nav>
+  <main class="content">
+    <h1>Domain Event Logging <span class="badge badge-new">v2.0.0</span></h1>
+    <p>Domain events capture <strong>business state transitions</strong> — what happened in the system from a business perspective. They are separate from technical HTTP logs (which the SDK handles automatically) and from ad-hoc <code>logger.info()</code> calls.</p>
+
+    <blockquote>
+      <p><strong>When to use <code>domainEvent()</code> vs <code>logger.info()</code>:</strong> Use <code>domainEvent()</code> for business actions that stakeholders care about — login, tender published, payment processed, bid submitted. Use <code>logger.info()</code> for technical details — cache hit, query executed, retry attempt.</p>
+    </blockquote>
+
+    <hr>
+
+    <h2>Quick Start</h2>
+    <pre><code class="language-typescript">import { ObservabilityLogger } from '@brdrwanda/observability';
+
+@Controller('api/users')
+export class UsersController {
+  constructor(private logger: ObservabilityLogger) {}
+
+  @Post('login')
+  async login(@Body() dto: UserLoginDto) {
+    try {
+      const result = await this.authService.authenticate(dto);
+
+      this.logger.domainEvent('auth.login_succeeded', {
+        entity_type: 'session',
+        entity_id: result.sessionId,
+        actor_type: 'user',
+        actor_id: result.userId,
+        metadata: {
+          auth_method: 'standard',
+          client_app: 'http://tugane-main.brd.rw',
+        },
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.domainEvent('auth.login_failed', {
+        entity_type: 'auth_attempt',
+        entity_id: dto.username,
+        actor_type: 'user',
+        level: 'warn',
+        metadata: {
+          failure_reason: 'invalid_credentials',
+          auth_method: 'standard',
+        },
+      });
+      throw error;
+    }
+  }
+}</code></pre>
+
+    <hr>
+
+    <h2>API Reference</h2>
+
+    <h3>domainEvent(eventName, options)</h3>
+    <p>Log a structured business event. The SDK automatically injects service context, request correlation, and trace IDs.</p>
+
+    <h4>Parameters</h4>
+    <table>
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Type</th>
+          <th>Required</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>eventName</code></td>
+          <td><code>string</code></td>
+          <td>Yes</td>
+          <td>Dot-separated event name: <code>{entity}.{action}</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h4>DomainEventOptions</h4>
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Type</th>
+          <th>Required</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>entity_type</code></td>
+          <td><code>string</code></td>
+          <td>Yes</td>
+          <td>Business entity type — <code>'tender'</code>, <code>'payment'</code>, <code>'session'</code>, <code>'bid'</code></td>
+        </tr>
+        <tr>
+          <td><code>entity_id</code></td>
+          <td><code>string</code></td>
+          <td>Yes</td>
+          <td>Specific instance ID — <code>'TND-2026-0042'</code>, <code>'PAY-00891'</code></td>
+        </tr>
+        <tr>
+          <td><code>actor_type</code></td>
+          <td><code>ActorType</code></td>
+          <td>No</td>
+          <td>Who triggered: <code>'user'</code> | <code>'system'</code> | <code>'scheduler'</code> | <code>'external'</code></td>
+        </tr>
+        <tr>
+          <td><code>actor_id</code></td>
+          <td><code>string</code></td>
+          <td>No</td>
+          <td>Actor identifier — user ID, system name, cron job name</td>
+        </tr>
+        <tr>
+          <td><code>level</code></td>
+          <td><code>LogLevel</code></td>
+          <td>No</td>
+          <td>Override log level. Default: <code>'info'</code>. Use <code>'warn'</code> for failures.</td>
+        </tr>
+        <tr>
+          <td><code>metadata</code></td>
+          <td><code>Record&lt;string, unknown&gt;</code></td>
+          <td>No</td>
+          <td>Domain-specific context for troubleshooting</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h4>Types</h4>
+    <pre><code class="language-typescript">import { DomainEventOptions, ActorType } from '@brdrwanda/observability';
+
+type ActorType = 'user' | 'system' | 'scheduler' | 'external';
+
+interface DomainEventOptions {
+  entity_type: string;
+  entity_id: string;
+  actor_type?: ActorType;
+  actor_id?: string;
+  level?: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+  metadata?: Record&lt;string, unknown&gt;;
+}</code></pre>
+
+    <hr>
+
+    <h2>Event Naming Convention</h2>
+    <p>Event names follow the pattern <code>{entity}.{action}</code> using lowercase snake_case:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Pattern</th>
+          <th>Examples</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>{entity}.{action}</code></td>
+          <td><code>tender.published</code>, <code>bid.submitted</code>, <code>auth.login_succeeded</code></td>
+        </tr>
+        <tr>
+          <td><code>{entity}.{sub}.{action}</code></td>
+          <td><code>tender.evaluation.completed</code>, <code>loan.disbursement.failed</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>The regex pattern enforced in development:</p>
+    <pre><code>^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,2}$</code></pre>
+
+    <blockquote>
+      <p><strong>Dev-mode validation:</strong> In non-production environments, the SDK warns (but does not crash) on invalid event names and missing <code>entity_type</code>/<code>entity_id</code>. No validation runs in production — zero overhead.</p>
+    </blockquote>
+
+    <hr>
+
+    <h2>Output Schema</h2>
+    <p>Every <code>domainEvent()</code> call produces a JSON log line with this shape:</p>
+    <pre><code class="language-json">{
+  "level": "info",
+  "time": 1788861150790,
+  "msg": "auth.login_succeeded",
+
+  "service_name": "authentication-service",
+  "environment": "production",
+  "version": "2.0.0",
+
+  "request_id": "d4a449ad-1ed0-417b-92f0-99648aa47087",
+  "correlation_id": "a15f9775-3167-4e3f-bb61-7cf14496e1ac",
+  "trace_id": "9ce3e1a3ae750c47143e004d0e26e568",
+  "span_id": "528dfe910c5186a1",
+  "client_app": "http://tugane-main.brd.rw",
+
+  "event_category": "domain",
+  "entity_type": "session",
+  "entity_id": "SES-2026-001",
+  "actor_type": "user",
+  "actor_id": "USR-00451",
+  "metadata": {
+    "auth_method": "standard",
+    "client_app": "http://tugane-main.brd.rw"
+  }
+}</code></pre>
+
+    <h3>Auto-injected fields</h3>
+    <p>These fields are added by the SDK — you never pass them manually:</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Source</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>event_category</code> <span class="auto-badge">auto</span></td>
+          <td>Always <code>"domain"</code></td>
+          <td>Separates domain events from technical logs in Loki</td>
+        </tr>
+        <tr>
+          <td><code>service_name</code> <span class="auto-badge">auto</span></td>
+          <td>SDK config</td>
+          <td>Which microservice emitted the event</td>
+        </tr>
+        <tr>
+          <td><code>environment</code> <span class="auto-badge">auto</span></td>
+          <td>SDK config / <code>NODE_ENV</code></td>
+          <td>Production, staging, development</td>
+        </tr>
+        <tr>
+          <td><code>version</code> <span class="auto-badge">auto</span></td>
+          <td>SDK config</td>
+          <td>Service version for tracking regressions</td>
+        </tr>
+        <tr>
+          <td><code>request_id</code> <span class="auto-badge">auto</span></td>
+          <td><code>X-Request-Id</code> header or generated</td>
+          <td>Unique per HTTP request</td>
+        </tr>
+        <tr>
+          <td><code>correlation_id</code> <span class="auto-badge">auto</span></td>
+          <td><code>X-Correlation-Id</code> header or <code>request_id</code></td>
+          <td>Tracks a request across services</td>
+        </tr>
+        <tr>
+          <td><code>trace_id</code> <span class="auto-badge">auto</span></td>
+          <td>OpenTelemetry active span</td>
+          <td>Links logs to distributed traces</td>
+        </tr>
+        <tr>
+          <td><code>span_id</code> <span class="auto-badge">auto</span></td>
+          <td>OpenTelemetry active span</td>
+          <td>Specific span within the trace</td>
+        </tr>
+        <tr>
+          <td><code>client_app</code> <span class="auto-badge">auto</span></td>
+          <td><code>X-Client-App</code>, <code>Origin</code>, or <code>Referer</code></td>
+          <td>Which frontend app made the request</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <hr>
+
+    <h2>Examples by Service</h2>
+
+    <h3>Authentication Service</h3>
+    <pre><code class="language-typescript">// Successful login
+this.logger.domainEvent('auth.login_succeeded', {
+  entity_type: 'session',
+  entity_id: result.sessionId,
+  actor_type: 'user',
+  actor_id: user.id,
+  metadata: {
+    auth_method: 'active_directory',   // or 'standard'
+    client_app: origin,
+  },
+});
+
+// Failed login
+this.logger.domainEvent('auth.login_failed', {
+  entity_type: 'auth_attempt',
+  entity_id: dto.username,
+  actor_type: 'user',
+  level: 'warn',
+  metadata: {
+    failure_reason: 'invalid_credentials',  // or 'account_locked', 'otp_expired'
+    auth_method: 'standard',
+  },
+});
+
+// Account locked after repeated failures
+this.logger.domainEvent('auth.account_locked', {
+  entity_type: 'user_account',
+  entity_id: user.id,
+  actor_type: 'system',
+  level: 'warn',
+  metadata: {
+    failed_attempts: 5,
+    lockout_duration_minutes: 30,
+  },
+});</code></pre>
+
+    <h3>Tender Service</h3>
+    <pre><code class="language-typescript">// Tender published
+this.logger.domainEvent('tender.published', {
+  entity_type: 'tender',
+  entity_id: 'TND-2026-0042',
+  actor_type: 'user',
+  actor_id: 'USR-00892',
+  metadata: {
+    previous_status: 'draft',
+    new_status: 'published',
+    tender_category: 'goods',
+    procurement_method: 'open',
+    lot_count: 3,
+    submission_deadline: '2026-10-15T17:00:00Z',
+  },
+});
+
+// Bid submitted
+this.logger.domainEvent('bid.submitted', {
+  entity_type: 'bid',
+  entity_id: 'BID-2026-0891',
+  actor_type: 'user',
+  actor_id: 'USR-01234',
+  metadata: {
+    tender_id: 'TND-2026-0042',
+    lot_number: 1,
+    bid_amount: 45000000,
+    currency: 'RWF',
+  },
+});
+
+// Tender evaluation completed
+this.logger.domainEvent('tender.evaluation.completed', {
+  entity_type: 'tender',
+  entity_id: 'TND-2026-0042',
+  actor_type: 'system',
+  metadata: {
+    total_bids: 12,
+    qualified_bids: 8,
+    disqualified_bids: 4,
+    evaluation_duration_hours: 48,
+  },
+});</code></pre>
+
+    <h3>Loan Service</h3>
+    <pre><code class="language-typescript">// Loan approved
+this.logger.domainEvent('loan.approved', {
+  entity_type: 'loan',
+  entity_id: 'LN-2026-00451',
+  actor_type: 'user',
+  actor_id: 'USR-00123',
+  metadata: {
+    amount: 15000000,
+    currency: 'RWF',
+    interest_rate: 16.5,
+    term_months: 36,
+    loan_type: 'mortgage',
+  },
+});
+
+// Disbursement failed
+this.logger.domainEvent('loan.disbursement.failed', {
+  entity_type: 'loan',
+  entity_id: 'LN-2026-00451',
+  actor_type: 'system',
+  level: 'error',
+  metadata: {
+    failure_reason: 'insufficient_funds',
+    disbursement_account: 'ACC-****-7890',
+    retry_count: 3,
+  },
+});</code></pre>
+
+    <h3>Payment Service</h3>
+    <pre><code class="language-typescript">// Payment processed
+this.logger.domainEvent('payment.processed', {
+  entity_type: 'payment',
+  entity_id: 'PAY-2026-08910',
+  actor_type: 'user',
+  actor_id: 'USR-00451',
+  metadata: {
+    amount: 500000,
+    currency: 'RWF',
+    payment_method: 'mobile_money',
+    provider: 'MTN',
+    reference: 'REF-ABC123',
+  },
+});</code></pre>
+
+    <hr>
+
+    <h2>Querying Domain Events in Loki</h2>
+    <p>The <code>event_category: "domain"</code> field makes domain events instantly filterable:</p>
+
+    <h4>All domain events</h4>
+    <pre><code class="language-logql">{service_name=~".+"} | json | event_category="domain"</code></pre>
+
+    <h4>Domain events from one service</h4>
+    <pre><code class="language-logql">{service_name="authentication-service"} | json | event_category="domain"</code></pre>
+
+    <h4>Specific event type</h4>
+    <pre><code class="language-logql">{service_name="authentication-service"} | json | event_category="domain" |= "auth.login_failed"</code></pre>
+
+    <h4>All events for one entity</h4>
+    <pre><code class="language-logql">{service_name=~".+"} | json | event_category="domain" | entity_id="TND-2026-0042"</code></pre>
+
+    <h4>Failed logins in the last hour</h4>
+    <pre><code class="language-logql">{service_name="authentication-service"} | json | event_category="domain" |= "auth.login_failed" | metadata_failure_reason="invalid_credentials"</code></pre>
+
+    <h4>All actions by one user</h4>
+    <pre><code class="language-logql">{service_name=~".+"} | json | event_category="domain" | actor_id="USR-00451"</code></pre>
+
+    <h4>Correlate domain event with its HTTP request</h4>
+    <pre><code class="language-logql">{service_name="authentication-service"} | json | request_id="d4a449ad-1ed0-417b-92f0-99648aa47087"</code></pre>
+    <p>This returns the domain event, the <code>request_complete</code> log, and any <code>request_error</code> — all from the same HTTP request, correlated by <code>request_id</code>.</p>
+
+    <hr>
+
+    <h2>Domain Events vs Technical Logs</h2>
+    <p>A single HTTP request can produce both types. Here's what a <code>POST /api/users/login</code> that fails generates:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Level</th>
+          <th>Message</th>
+          <th>Type</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><code>WARN</code></td>
+          <td><code>auth.login_failed</code></td>
+          <td>Domain event</td>
+          <td>Your code (<code>domainEvent()</code>)</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><code>WARN</code></td>
+          <td><code>request_error</code></td>
+          <td>Technical</td>
+          <td>SDK exception filter (auto)</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td><code>INFO</code></td>
+          <td><code>request_complete</code></td>
+          <td>Technical</td>
+          <td>SDK interceptor (auto)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>All three share the same <code>request_id</code>, <code>correlation_id</code>, and <code>trace_id</code>. In Loki, filter by <code>event_category="domain"</code> to see only business events, or by <code>request_id</code> to see the full picture for one request.</p>
+
+    <hr>
+
+    <h2>Best Practices</h2>
+
+    <h3>Do</h3>
+    <ul>
+      <li>Use <code>entity_type</code> + <code>entity_id</code> to identify <em>what</em> was affected</li>
+      <li>Use <code>actor_type</code> + <code>actor_id</code> to identify <em>who</em> did it</li>
+      <li>Set <code>level: 'warn'</code> for business failures (login failed, validation rejected, limit exceeded)</li>
+      <li>Set <code>level: 'error'</code> for broken business flows (disbursement failed, integration timeout)</li>
+      <li>Include <code>previous_status</code> and <code>new_status</code> in state transitions</li>
+      <li>Include <code>failure_reason</code> as a short enum value, not a free-text message</li>
+      <li>Keep metadata flat — avoid deeply nested objects</li>
+    </ul>
+
+    <h3>Don't</h3>
+    <ul>
+      <li>Don't log PII in <code>entity_id</code> — use internal IDs (<code>USR-00451</code>), not names or emails</li>
+      <li>Don't log passwords, tokens, or credit card numbers in metadata</li>
+      <li>Don't duplicate what the SDK auto-logs — no need to log HTTP method, status code, or duration in your domain event</li>
+      <li>Don't use <code>domainEvent()</code> for technical events — use <code>logger.info()</code> for cache hits, retries, query timing</li>
+      <li>Don't use free-text event names — <code>tender.published</code> not <code>"Tender was published by user"</code></li>
+    </ul>
+
+    <hr>
+
+    <h2>Metadata Guidelines</h2>
+    <p>The <code>metadata</code> object carries domain-specific context. Keep it focused on what you'd need to troubleshoot or audit:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Event</th>
+          <th>Recommended metadata</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>State transitions</td>
+          <td><code>previous_status</code>, <code>new_status</code>, <code>reason</code></td>
+        </tr>
+        <tr>
+          <td>Financial events</td>
+          <td><code>amount</code>, <code>currency</code>, <code>account_id</code> (masked)</td>
+        </tr>
+        <tr>
+          <td>Auth events</td>
+          <td><code>auth_method</code>, <code>client_app</code>, <code>failure_reason</code></td>
+        </tr>
+        <tr>
+          <td>Batch operations</td>
+          <td><code>total_count</code>, <code>success_count</code>, <code>failure_count</code></td>
+        </tr>
+        <tr>
+          <td>Scheduled jobs</td>
+          <td><code>job_name</code>, <code>duration_ms</code>, <code>items_processed</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <blockquote>
+      <p><strong>Redaction applies to metadata.</strong> The SDK's Pino redaction paths (<code>*.password</code>, <code>*.token</code>, etc.) apply to metadata fields too. If you include a field named <code>token</code> in metadata, it will be redacted to <code>[REDACTED]</code>.</p>
+    </blockquote>
+
+    <hr>
+
+    <h2>Standalone Mode</h2>
+    <p>Domain events work in <a href="standalone.html">standalone mode</a> too — for scripts, workers, and CLI tools outside NestJS:</p>
+    <pre><code class="language-typescript">import { createObservability } from '@brdrwanda/observability/standalone';
+
+const obs = createObservability({
+  serviceName: 'data-migration-worker',
+  environment: 'production',
+  version: '1.0.0',
+});
+
+obs.logger.domainEvent('migration.batch_completed', {
+  entity_type: 'migration_batch',
+  entity_id: 'BATCH-2026-042',
+  actor_type: 'scheduler',
+  metadata: {
+    table: 'transactions',
+    rows_migrated: 50000,
+    duration_ms: 12345,
+  },
+});</code></pre>
+
+    <blockquote>
+      <p><strong>Note:</strong> In standalone mode, <code>request_id</code>, <code>correlation_id</code>, and <code>client_app</code> are not auto-injected (there is no HTTP request). <code>trace_id</code> and <code>span_id</code> are injected if tracing is enabled.</p>
+    </blockquote>
+
+  </main>
+</body>
+</html>
